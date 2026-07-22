@@ -1,0 +1,143 @@
+spring:
+  application:
+    name: hs-notification-platform
+
+  servlet:
+    multipart:
+      max-file-size: 15MB
+      max-request-size: 15MB
+
+  datasource:
+    url: ${DB_URL:jdbc:postgresql://localhost:5432/hs_notification}
+    username: ${DB_USERNAME:hs_notify}
+    password: ${DB_PASSWORD:changeme}
+    hikari:
+      maximum-pool-size: 10
+      minimum-idle: 2
+
+  jpa:
+    hibernate:
+      ddl-auto: validate
+    open-in-view: false
+    properties:
+      hibernate:
+        format_sql: false
+        jdbc:
+          time_zone: UTC
+
+  flyway:
+    enabled: true
+    locations: classpath:db/migration
+    baseline-on-migrate: true
+
+  mail:
+    # Per-tenant SMTP overrides this default; this is the fallback/internal sender.
+    host: ${SMTP_HOST:localhost}
+    port: ${SMTP_PORT:587}
+    username: ${SMTP_USERNAME:}
+    password: ${SMTP_PASSWORD:}
+    properties:
+      mail:
+        smtp:
+          auth: ${SMTP_AUTH:false}
+          starttls:
+            enable: ${SMTP_STARTTLS:false}
+          connectiontimeout: 5000
+          timeout: 5000
+          writetimeout: 5000
+
+  quartz:
+    job-store-type: jdbc
+    jdbc:
+      initialize-schema: always
+    properties:
+      org:
+        quartz:
+          scheduler:
+            instanceName: HsNotificationScheduler
+            instanceId: AUTO
+          jobStore:
+            driverDelegateClass: org.quartz.impl.jdbcjobstore.PostgreSQLDelegate
+            isClustered: true
+          threadPool:
+            threadCount: 4
+
+server:
+  port: ${SERVER_PORT:8089}
+  shutdown: graceful
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,prometheus,metrics
+  endpoint:
+    health:
+      show-details: always
+      probes:
+        enabled: true
+  health:
+    livenessstate:
+      enabled: true
+    readinessstate:
+      enabled: true
+
+springdoc:
+  swagger-ui:
+    path: /docs
+  api-docs:
+    path: /api-docs
+
+hs-notification:
+  mail:
+    # Envelope/header From address for outbound notifications. Matches HyperSense's
+    # own existing notification sender identity.
+    from-address: ${MAIL_FROM_ADDRESS:support.alerts@subex.com}
+  security:
+    api-key-header: X-HS-API-Key
+    # Bootstrap dev key seeded into api_key table on first run.
+    # Operators issue production keys via POST /api/v1/admin/api-keys.
+    api-keys: ${HS_API_KEYS:ZAIN:dev-local-key-change-me}
+    # Separate credential protecting /api/v1/admin endpoints.
+    # Must be changed before any production deployment.
+    admin-token: ${HS_ADMIN_TOKEN:changeme-admin-token}
+    # Lightweight shared secret (not full auth) for the unauthenticated
+    # GET /api/v1/templates/active and GET /api/v1/rules/active PAS dropdown
+    # lookups — a single static header value, sent as X-HS-Lookup-Token.
+    # Must be changed before any production deployment.
+    lookup-token: ${HS_LOOKUP_TOKEN:changeme-lookup-token}
+    admin-login:
+      # Human login for the dashboard SPA (distinct from tenant API keys and
+      # the admin-token above). Default is dev-only: admin / admin123.
+      # Password is hashed in-memory at startup (AdminAuthService) — never
+      # stored or logged in plaintext beyond this config default.
+      username: ${HS_ADMIN_USERNAME:admin}
+      password: ${HS_ADMIN_PASSWORD:admin123}
+      jwt-secret: ${HS_ADMIN_JWT_SECRET:dev-only-jwt-secret-change-me-please-32bytes+}
+      jwt-ttl-minutes: ${HS_ADMIN_JWT_TTL_MINUTES:480}
+  report-service:
+    # Base URL of the HS report/PR generation service.
+    # When set, AttachmentService calls it for REPORT_SERVICE attachment sources.
+    base-url: ${REPORT_SERVICE_URL:}
+    connect-timeout-ms: 5000
+    read-timeout-ms: 30000
+  case-link:
+    # Base URL for the computed case_link template variable. NotificationService
+    # derives case_link as "{base-url}/{case_id}" at send time — it is never a
+    # stored field, so templates must not expect it in the raw trigger context.
+    base-url: ${CASE_LINK_BASE_URL:https://bscg-presales.subex.com/pas-client/cases/case-investigation}
+  watchdog:
+    enabled: true
+    self-check-url: http://localhost:${server.port}/actuator/health
+  rate-limit:
+    enabled: true
+  retention:
+    audit-log-days: 365
+    job-history-days: 180
+
+logging:
+  level:
+    com.hs.notification: INFO
+    org.hibernate.SQL: WARN
+  pattern:
+    console: "%d{yyyy-MM-dd HH:mm:ss} [%thread] %-5level %logger{36} - %msg%n"

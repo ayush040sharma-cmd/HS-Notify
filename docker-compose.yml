@@ -1,0 +1,49 @@
+version: "3.8"
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: hs_notification
+      POSTGRES_USER: hs_notify
+      POSTGRES_PASSWORD: changeme
+    ports:
+      - "5432:5432"
+    volumes:
+      - hs_notification_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U hs_notify"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  backend:
+    build:
+      context: ./backend
+    ports:
+      - "8089:8089"
+    environment:
+      DB_URL: jdbc:postgresql://postgres:5432/hs_notification
+      DB_USERNAME: hs_notify
+      DB_PASSWORD: changeme
+      SMTP_HOST: subex-com.mail.protection.outlook.com
+      SMTP_PORT: 25
+      SMTP_AUTH: "false"
+      SMTP_STARTTLS: "false"
+      MAIL_FROM_ADDRESS: support.alerts@subex.com
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  frontend:
+    build:
+      context: ./frontend
+    ports:
+      - "5173:5173"
+    environment:
+      BACKEND_URL: http://backend:8089
+    depends_on:
+      - backend
+
+volumes:
+  hs_notification_pgdata:

@@ -1,0 +1,93 @@
+{
+  "info": {
+    "name": "HS Notify API — BMS / PAS Integration",
+    "_postman_id": "hs-notify-bms-pas-integration",
+    "description": "Endpoints for BMS and PAS to trigger notifications directly. Import this collection into Postman, set the `baseUrl` and `apiKey` collection variables, and run requests as-is against the two seeded test rules, or point `ruleCode` at your own rule once it's configured (see notes on each request).\n\nAuthentication: every call under /api/v1 (except /actuator/health) requires the `X-HS-API-Key` header. It is set once at the collection level below — do not repeat it per request.\n\nBefore BMS/PAS can successfully call send-by-rule for a given rule:\n1. The rule must exist and be status=ACTIVE (created via Notification Rules UI, then approved by a *different* user than the creator — maker-checker).\n2. Recipients: **To is dynamic, CC is fixed.** Pass the currently logged-in user's email as `recipientOverride` on every call — that becomes the To address for that send. CC always comes from the rule's configured recipient group and cannot be set by the caller; both PR_CLOSE_RULE and CASE_ESCALATE_RULE are configured to CC `FMS_Group@subex.com` on every send. If `recipientOverride` is omitted, To falls back to `FMS_Group@subex.com` too — so nothing is lost, but you should always send it in real usage.\n3. Any `context` keys you send must be on the template's allowed-variables whitelist, or they'll be silently stripped by DLP masking/whitelisting.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    { "key": "baseUrl", "value": "http://localhost:8089", "type": "string" },
+    { "key": "apiKey", "value": "dev-local-key-change-me", "type": "string" },
+    { "key": "loggedInUserEmail", "value": "loggedin.user@subex.com", "type": "string", "description": "Set this to whichever user is actually logged into BMS/PAS at call time — it becomes the To address via recipientOverride." }
+  ],
+  "auth": {
+    "type": "apikey",
+    "apikey": [
+      { "key": "key", "value": "X-HS-API-Key", "type": "string" },
+      { "key": "value", "value": "{{apiKey}}", "type": "string" },
+      { "key": "in", "value": "header", "type": "string" }
+    ]
+  },
+  "item": [
+    {
+      "name": "Health Check (no auth)",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{baseUrl}}/actuator/health",
+          "host": ["{{baseUrl}}"],
+          "path": ["actuator", "health"]
+        },
+        "description": "Confirm the platform is reachable and its DB/mail dependencies are UP before running anything else."
+      }
+    },
+    {
+      "name": "Send By Rule — BMS example (PR closure)",
+      "request": {
+        "method": "POST",
+        "header": [
+          { "key": "Content-Type", "value": "application/json" }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"ruleCode\": \"PR_CLOSE_RULE\",\n  \"idempotencyKey\": \"BMS-PR10293-CLOSE-20260721\",\n  \"sourceReference\": \"PR-10293\",\n  \"sourceType\": \"PR_CLOSURE\",\n  \"recipientOverride\": \"{{loggedInUserEmail}}\",\n  \"context\": {\n    \"pr_id\": \"10293\",\n    \"account_name\": \"Acme Corp\",\n    \"closed_by\": \"analyst.jdoe\",\n    \"close_date\": \"2026-07-21\"\n  }\n}"
+        },
+        "url": {
+          "raw": "{{baseUrl}}/api/v1/notifications/send-by-rule",
+          "host": ["{{baseUrl}}"],
+          "path": ["api", "v1", "notifications", "send-by-rule"]
+        },
+        "description": "BMS calls this when a PR closes. `ruleCode` must be an ACTIVE rule (PR_CLOSE_RULE is pre-seeded). `idempotencyKey` must be unique per real-world event — if BMS retries the same call (e.g. on a network timeout) with the same key, the platform returns the original job instead of sending a duplicate email. `recipientOverride` should be set to whichever user is logged into BMS right now — that's who gets the To. CC is always `FMS_Group@subex.com`, fixed on the rule. `context` keys must match the template's variable whitelist (`pr_id`, `account_name`, `closed_by`, `close_date` for PR_CLOSE_MAIL)."
+      }
+    },
+    {
+      "name": "Send By Rule — PAS example (case escalation)",
+      "request": {
+        "method": "POST",
+        "header": [
+          { "key": "Content-Type", "value": "application/json" }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"ruleCode\": \"CASE_ESCALATE_RULE\",\n  \"idempotencyKey\": \"PAS-CASE55021-ESCALATE-20260721\",\n  \"sourceReference\": \"CASE-55021\",\n  \"sourceType\": \"CASE_ESCALATION\",\n  \"recipientOverride\": \"{{loggedInUserEmail}}\",\n  \"context\": {\n    \"case_id\": \"55021\",\n    \"severity\": \"HIGH\",\n    \"escalation_level\": \"L2\",\n    \"reason\": \"SLA breach imminent\"\n  }\n}"
+        },
+        "url": {
+          "raw": "{{baseUrl}}/api/v1/notifications/send-by-rule",
+          "host": ["{{baseUrl}}"],
+          "path": ["api", "v1", "notifications", "send-by-rule"]
+        },
+        "description": "PAS calls this on a case escalation event. CASE_ESCALATE_RULE must be ACTIVE (approve it from Notification Rules if it's showing DISABLED/PENDING_REVIEW), or this fails with a 'rule not ACTIVE' error. Same recipient pattern as PR_CLOSE_RULE: `recipientOverride` = whoever's logged into PAS, CC is fixed to `FMS_Group@subex.com`."
+      }
+    },
+    {
+      "name": "Send Direct (one-off, no rule)",
+      "request": {
+        "method": "POST",
+        "header": [
+          { "key": "Content-Type", "value": "application/json" }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"to\": [\"ops@example.com\"],\n  \"cc\": [],\n  \"templateCode\": \"MANUAL_NOTE_MAIL\",\n  \"context\": {\n    \"topic\": \"Test from BMS/PAS integration\",\n    \"message\": \"This is a one-off test send, not tied to a rule.\"\n  }\n}"
+        },
+        "url": {
+          "raw": "{{baseUrl}}/api/v1/notifications/send-direct",
+          "host": ["{{baseUrl}}"],
+          "path": ["api", "v1", "notifications", "send-direct"]
+        },
+        "description": "Use only if BMS/PAS needs to send an ad-hoc email outside the governed rule/approval flow. Recipients are supplied directly in the request rather than pre-configured — no maker-checker, no retry/escalation policy. Prefer send-by-rule for anything recurring."
+      }
+    }
+  ]
+}

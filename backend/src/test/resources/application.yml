@@ -1,0 +1,21 @@
+spring:
+  quartz:
+    job-store-type: memory
+    auto-startup: false
+  mail:
+    host: localhost
+    port: 25
+    username: ""
+    password: ""
+    properties:
+      mail:
+        smtp:
+          auth: false
+          starttls:
+            enable: false
+
+hs-notification:
+  watchdog:
+    poll-interval-ms: 3600000
+  security:
+    api-keys: "ZAIN:test-api-key"
