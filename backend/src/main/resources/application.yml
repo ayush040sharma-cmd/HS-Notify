@@ -137,6 +137,23 @@ hs-notification:
     password: ${USAGE_DB_PASSWORD:}
     connect-timeout-ms: 5000
     socket-timeout-seconds: 20
+  case-watch:
+    # Off by default. When enabled, CaseWatchScheduler polls case_tbl (see
+    # case-tbl-datasource below) and fires NEW_CASE_ALERT_RULE for every new
+    # row. tenant-code is CHANGEME — the poller skips every run (logging a
+    # warning) until both this and case-tbl-datasource are filled in.
+    enabled: ${CASE_WATCH_ENABLED:false}
+    poll-interval-ms: ${CASE_WATCH_POLL_INTERVAL_MS:60000}
+    tenant-code: ${CASE_WATCH_TENANT_CODE:}
+  case-tbl-datasource:
+    # CHANGEME — real host/db/credentials for HyperSense's case_tbl database
+    # (a separate Postgres DB from our own, and separate from usage-datasource
+    # above). Blank url/username is treated as "not configured".
+    url: ${CASE_TBL_DB_URL:}
+    username: ${CASE_TBL_DB_USERNAME:}
+    password: ${CASE_TBL_DB_PASSWORD:}
+    connect-timeout-ms: 5000
+    socket-timeout-seconds: 20
   watchdog:
     enabled: true
     self-check-url: http://localhost:${server.port}/actuator/health
