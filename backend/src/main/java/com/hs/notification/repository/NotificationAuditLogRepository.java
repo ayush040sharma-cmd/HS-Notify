@@ -16,4 +16,6 @@ public interface NotificationAuditLogRepository extends JpaRepository<Notificati
 
     List<NotificationAuditLog> findByTenant_TenantIdAndEventTypeAndOccurredAtAfter(
             Long tenantId, String eventType, OffsetDateTime since);
+
+    boolean existsByRule_RuleId(Long ruleId);
 }

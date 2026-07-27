@@ -5,6 +5,7 @@ import com.hs.notification.dto.NotificationTemplateResponse;
 import com.hs.notification.dto.UpsertTemplateRequest;
 import com.hs.notification.model.NotificationTemplate;
 import com.hs.notification.model.Tenant;
+import com.hs.notification.repository.NotificationRuleRepository;
 import com.hs.notification.repository.NotificationTemplateRepository;
 import com.hs.notification.repository.TenantRepository;
 import com.hs.notification.service.AuditService;
@@ -28,13 +29,16 @@ public class TemplateController {
     private final NotificationTemplateRepository templateRepository;
     private final TenantRepository tenantRepository;
     private final AuditService auditService;
+    private final NotificationRuleRepository ruleRepository;
 
     public TemplateController(NotificationTemplateRepository templateRepository,
                               TenantRepository tenantRepository,
-                              AuditService auditService) {
+                              AuditService auditService,
+                              NotificationRuleRepository ruleRepository) {
         this.templateRepository = templateRepository;
         this.tenantRepository = tenantRepository;
         this.auditService = auditService;
+        this.ruleRepository = ruleRepository;
     }
 
     @GetMapping
@@ -139,6 +143,28 @@ public class TemplateController {
                 "Template " + template.getTemplateCode() + " approved and activated by " + approver,
                 approver, null);
         return ResponseEntity.ok(NotificationTemplateResponse.from(template));
+    }
+
+    @DeleteMapping("/{templateId}")
+    @Transactional
+    public ResponseEntity<?> delete(@PathVariable Long templateId, HttpServletRequest httpRequest) {
+        Tenant tenant = resolveTenant(httpRequest);
+        NotificationTemplate template = templateRepository.findById(templateId)
+                .filter(t -> t.getTenant().getTenantId().equals(tenant.getTenantId()))
+                .orElseThrow(() -> new IllegalArgumentException("Template not found: " + templateId));
+
+        if (ruleRepository.existsByTemplate_TemplateId(templateId)) {
+            return ResponseEntity.status(409).body(Map.of(
+                    "error", "Template is used by one or more rules and cannot be deleted",
+                    "templateId", templateId));
+        }
+
+        String templateCode = template.getTemplateCode();
+        templateRepository.delete(template);
+
+        auditService.log(tenant, null, null, "TEMPLATE_CHANGED",
+                "Template " + templateCode + " (id=" + templateId + ") deleted", actorOf(httpRequest), null);
+        return ResponseEntity.noContent().build();
     }
 
     private void applyFields(NotificationTemplate template, UpsertTemplateRequest request, boolean isCreate) {

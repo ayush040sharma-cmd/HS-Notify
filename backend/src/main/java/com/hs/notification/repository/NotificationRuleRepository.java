@@ -18,4 +18,6 @@ public interface NotificationRuleRepository extends JpaRepository<NotificationRu
     List<NotificationRule> findByStatus(String status);
 
     List<NotificationRule> findByTenant_TenantIdAndStatus(Long tenantId, String status);
+
+    boolean existsByTemplate_TemplateId(Long templateId);
 }

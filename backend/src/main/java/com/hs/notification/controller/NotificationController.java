@@ -1,6 +1,8 @@
 package com.hs.notification.controller;
 
 import com.hs.notification.dto.NotificationJobResponse;
+import com.hs.notification.dto.SendCustomNotificationRequest;
+import com.hs.notification.dto.SendCustomNotificationResponse;
 import com.hs.notification.dto.SendDirectRequest;
 import com.hs.notification.dto.SendNotificationRequest;
 import com.hs.notification.model.NotificationJob;
@@ -53,6 +55,20 @@ public class NotificationController {
                 tenant, request.to(), request.cc(), request.templateCode(), request.context(),
                 request.subject(), request.htmlBody(), request.attachmentPath(), actor);
         return ResponseEntity.ok(NotificationJobResponse.from(job));
+    }
+
+    @PostMapping("/send-custom")
+    public ResponseEntity<SendCustomNotificationResponse> sendCustom(
+            @Valid @RequestBody SendCustomNotificationRequest request,
+            HttpServletRequest httpRequest) {
+
+        Tenant tenant = resolveTenant(httpRequest);
+        String actor = httpRequest.getRemoteUser() != null ? httpRequest.getRemoteUser() : "ui-user";
+
+        NotificationService.CustomSendResult result =
+                notificationService.submitCustomNotification(tenant, request, actor);
+        return ResponseEntity.ok(new SendCustomNotificationResponse(
+                NotificationJobResponse.from(result.job()), result.notices()));
     }
 
     private Tenant resolveTenant(HttpServletRequest request) {

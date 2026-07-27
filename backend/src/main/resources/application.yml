@@ -126,6 +126,17 @@ hs-notification:
     # derives case_link as "{base-url}/{case_id}" at send time — it is never a
     # stored field, so templates must not expect it in the raw trigger context.
     base-url: ${CASE_LINK_BASE_URL:https://bscg-presales.subex.com/pas-client/cases/case-investigation}
+  usage-datasource:
+    # CHANGEME — real host/db/credentials for the "usage DB" holding the
+    # system_pr_results_<catalog_id> tables (separate Postgres DB from our own,
+    # and separate from the case_tbl DB used by the case-watch poller).
+    # PrRecordsExportService treats a blank url/username as "not configured"
+    # and skips the CSV attachment gracefully rather than failing the send.
+    url: ${USAGE_DB_URL:}
+    username: ${USAGE_DB_USERNAME:}
+    password: ${USAGE_DB_PASSWORD:}
+    connect-timeout-ms: 5000
+    socket-timeout-seconds: 20
   watchdog:
     enabled: true
     self-check-url: http://localhost:${server.port}/actuator/health

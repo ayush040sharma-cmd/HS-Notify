@@ -333,6 +333,14 @@ export const mockApi = {
     if (r) { r.status = 'DISABLED'; r.active = false; }
     return r;
   }),
+  deleteRule: (ruleId) => delay().then(() => {
+    MOCK.listRules = MOCK.listRules.filter(r => r.ruleId !== ruleId);
+    return null;
+  }),
+  deleteTemplate: (templateId) => delay().then(() => {
+    MOCK.listTemplates = MOCK.listTemplates.filter(t => t.templateId !== templateId);
+    return null;
+  }),
 
   sendByRule: (payload) => delay(600).then(() => ({
     jobId: jobIdSeq++, ruleCode: payload.ruleCode, channel: 'EMAIL', status: 'SENT',

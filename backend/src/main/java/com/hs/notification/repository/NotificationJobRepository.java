@@ -34,4 +34,6 @@ public interface NotificationJobRepository extends JpaRepository<NotificationJob
     Optional<NotificationJob> findFirstByTenant_TenantIdAndStatusOrderByCreatedAtAsc(Long tenantId, String status);
 
     List<NotificationJob> findByTenant_TenantIdAndStatusAndSentAtAfter(Long tenantId, String status, OffsetDateTime since);
+
+    boolean existsByRule_RuleId(Long ruleId);
 }

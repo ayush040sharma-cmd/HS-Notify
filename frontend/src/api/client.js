@@ -88,11 +88,13 @@ const liveApi = {
   approveRule: (ruleId) => client.post(`/rules/${ruleId}/approve`).then(r => r.data),
   submitRuleForReview: (ruleId) => client.post(`/rules/${ruleId}/submit-for-review`).then(r => r.data),
   disableRule: (ruleId) => client.post(`/rules/${ruleId}/disable`).then(r => r.data),
+  deleteRule: (ruleId) => client.delete(`/rules/${ruleId}`).then(r => r.data),
 
   listTemplates: () => client.get('/templates').then(r => r.data),
   createTemplate: (payload) => client.post('/templates', payload).then(r => r.data),
   updateTemplate: (templateId, payload) => client.put(`/templates/${templateId}`, payload).then(r => r.data),
   approveTemplate: (templateId) => client.post(`/templates/${templateId}/approve`).then(r => r.data),
+  deleteTemplate: (templateId) => client.delete(`/templates/${templateId}`).then(r => r.data),
 
   listAudit: (page = 0, size = 50) =>
     client.get('/audit', { params: { page, size } }).then(r => r.data),

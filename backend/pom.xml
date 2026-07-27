@@ -49,7 +49,9 @@
         <dependency>
             <groupId>org.postgresql</groupId>
             <artifactId>postgresql</artifactId>
-            <scope>runtime</scope>
+            <!-- compile scope (not runtime) — PrRecordsExportService references
+                 org.postgresql.copy.CopyManager directly to stream COPY output
+                 from the usage DB. -->
         </dependency>
 
         <!-- Flyway migrations -->

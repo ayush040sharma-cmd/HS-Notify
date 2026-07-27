@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { api } from '../api/client.js';
-import { CheckCircle, XCircle, Clock, ChevronRight, X, RefreshCw, ListChecks, Plus, Pencil, AlertTriangle, Paperclip, UploadCloud } from 'lucide-react';
+import { CheckCircle, XCircle, Clock, ChevronRight, X, RefreshCw, ListChecks, Plus, Pencil, AlertTriangle, Paperclip, UploadCloud, Trash2 } from 'lucide-react';
 
 function RuleStatus({ status }) { return <span className={`badge badge-${status.toLowerCase().replace('_', '_')}`}>{status.replace('_', ' ')}</span>; }
 function ChannelBadge({ c }) { return <span className={`badge badge-${(c||'EMAIL').toLowerCase()}`}>{c||'EMAIL'}</span>; }
@@ -94,6 +94,21 @@ export default function NotificationRules() {
   const openCreate = () => { setError(null); setEditing({ form: { ...emptyForm }, ruleId: null }); };
   const openEdit = (r) => { setError(null); setEditing({ form: toForm(r), ruleId: r.ruleId }); setSelected(null); };
 
+  const remove = async (rule) => {
+    if (!window.confirm(`Delete rule "${rule.ruleCode}"? Rules with any audit history can't be permanently removed, so this disables it instead — it stops firing but stays visible for history.`)) return;
+    setBusyId(rule.ruleId); setError(null); setOk(null);
+    try {
+      await api.disableRule(rule.ruleId);
+      setOk('Rule disabled');
+      setSelected(s => s?.ruleId === rule.ruleId ? null : s);
+      load();
+    } catch (e) {
+      setError(e?.response?.data?.error || e?.response?.data?.message || 'Delete failed');
+    } finally {
+      setBusyId(null);
+    }
+  };
+
   const uploadAttachmentFile = async (file) => {
     if (!file) return;
     setError(null);
@@ -176,6 +191,10 @@ export default function NotificationRules() {
                     <div style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
                       <button className="btn btn-ghost btn-icon" onClick={(e) => { e.stopPropagation(); openEdit(r); }} title="Edit rule">
                         <Pencil size={13} />
+                      </button>
+                      <button className="btn btn-ghost btn-icon" disabled={busyId === r.ruleId}
+                        onClick={(e) => { e.stopPropagation(); remove(r); }} title="Delete rule">
+                        <Trash2 size={13} />
                       </button>
                       <ChevronRight size={14} color="var(--text-muted)" />
                     </div>
@@ -261,11 +280,9 @@ export default function NotificationRules() {
                       <CheckCircle size={12} /> Approve &amp; Activate
                     </button>
                   )}
-                  {selected.status === 'ACTIVE' && (
-                    <button className="btn btn-danger btn-sm" disabled={busyId === selected.ruleId} onClick={() => act(api.disableRule, selected.ruleId)}>
-                      <XCircle size={12} /> Disable Rule
-                    </button>
-                  )}
+                  <button className="btn btn-danger btn-sm" disabled={busyId === selected.ruleId} onClick={() => remove(selected)}>
+                    <Trash2 size={12} /> Delete Rule
+                  </button>
                 </div>
               </div>
             </div>

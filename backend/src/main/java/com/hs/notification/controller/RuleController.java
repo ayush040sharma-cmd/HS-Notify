@@ -13,8 +13,11 @@ import com.hs.notification.model.RecipientGroupMember;
 import com.hs.notification.model.Tenant;
 import com.hs.notification.repository.AttachmentRuleRepository;
 import com.hs.notification.repository.EscalationChainRepository;
+import com.hs.notification.repository.NotificationAuditLogRepository;
+import com.hs.notification.repository.NotificationJobRepository;
 import com.hs.notification.repository.NotificationRuleRepository;
 import com.hs.notification.repository.NotificationTemplateRepository;
+import com.hs.notification.repository.RateLimitBucketRepository;
 import com.hs.notification.repository.RecipientGroupRepository;
 import com.hs.notification.repository.TenantRepository;
 import com.hs.notification.service.AuditService;
@@ -43,6 +46,9 @@ public class RuleController {
     private final AttachmentRuleRepository attachmentRuleRepository;
     private final TenantRepository tenantRepository;
     private final AuditService auditService;
+    private final NotificationJobRepository jobRepository;
+    private final NotificationAuditLogRepository auditLogRepository;
+    private final RateLimitBucketRepository rateLimitBucketRepository;
 
     public RuleController(NotificationRuleRepository ruleRepository,
                           NotificationTemplateRepository templateRepository,
@@ -50,7 +56,10 @@ public class RuleController {
                           EscalationChainRepository escalationChainRepository,
                           AttachmentRuleRepository attachmentRuleRepository,
                           TenantRepository tenantRepository,
-                          AuditService auditService) {
+                          AuditService auditService,
+                          NotificationJobRepository jobRepository,
+                          NotificationAuditLogRepository auditLogRepository,
+                          RateLimitBucketRepository rateLimitBucketRepository) {
         this.ruleRepository = ruleRepository;
         this.templateRepository = templateRepository;
         this.recipientGroupRepository = recipientGroupRepository;
@@ -58,6 +67,9 @@ public class RuleController {
         this.attachmentRuleRepository = attachmentRuleRepository;
         this.tenantRepository = tenantRepository;
         this.auditService = auditService;
+        this.jobRepository = jobRepository;
+        this.auditLogRepository = auditLogRepository;
+        this.rateLimitBucketRepository = rateLimitBucketRepository;
     }
 
     @GetMapping
@@ -340,6 +352,26 @@ public class RuleController {
         ruleRepository.save(rule);
         auditService.log(rule.getTenant(), null, rule, "RULE_CHANGED", "Disabled");
         return ResponseEntity.ok(NotificationRuleResponse.from(rule));
+    }
+
+    @DeleteMapping("/{ruleId}")
+    @Transactional
+    public ResponseEntity<?> delete(@PathVariable Long ruleId, HttpServletRequest httpRequest) {
+        NotificationRule rule = requireRule(ruleId, httpRequest);
+
+        if (jobRepository.existsByRule_RuleId(ruleId) || auditLogRepository.existsByRule_RuleId(ruleId)) {
+            return ResponseEntity.status(409).body(Map.of(
+                    "error", "Rule has audit/send history and cannot be deleted — disable it instead",
+                    "ruleId", ruleId));
+        }
+
+        String ruleCode = rule.getRuleCode();
+        rateLimitBucketRepository.deleteByRule_RuleId(ruleId);
+        ruleRepository.delete(rule);
+
+        auditService.log(rule.getTenant(), null, null, "RULE_CHANGED",
+                "Rule " + ruleCode + " (id=" + ruleId + ") deleted", actorOf(httpRequest), null);
+        return ResponseEntity.noContent().build();
     }
 
     private NotificationRule requireRule(Long ruleId, HttpServletRequest httpRequest) {

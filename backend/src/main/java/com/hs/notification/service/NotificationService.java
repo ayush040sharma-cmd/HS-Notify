@@ -1,5 +1,6 @@
 package com.hs.notification.service;
 
+import com.hs.notification.dto.SendCustomNotificationRequest;
 import com.hs.notification.exception.FeatureDisabledException;
 import com.hs.notification.exception.RateLimitExceededException;
 import com.hs.notification.exception.RuleNotActiveException;
@@ -13,11 +14,17 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.time.OffsetDateTime;
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
+import java.util.UUID;
 import java.util.stream.Collectors;
 
 @Service
@@ -25,37 +32,46 @@ public class NotificationService {
 
     private static final Logger log = LoggerFactory.getLogger(NotificationService.class);
 
+    private static final Set<String> ALLOWED_CUSTOM_SCENARIOS = Set.of(
+            "FRAUD_ALERT", "ZERO_TOLERANCE", "VENDOR_EMAIL", "CASE_SUMMARY", "PR_CLOSE");
+
     private final NotificationRuleRepository ruleRepository;
     private final NotificationJobRepository jobRepository;
     private final NotificationTemplateRepository templateRepository;
     private final TemplateRenderingService templateRenderingService;
     private final AttachmentService attachmentService;
+    private final PrRecordsExportService prRecordsExportService;
     private final MailDispatchService mailDispatchService;
     private final AuditService auditService;
     private final FeatureToggleService featureToggleService;
     private final RateLimitService rateLimitService;
     private final String caseLinkBaseUrl;
+    private final String attachmentsStorageDir;
 
     public NotificationService(NotificationRuleRepository ruleRepository,
                                NotificationJobRepository jobRepository,
                                NotificationTemplateRepository templateRepository,
                                TemplateRenderingService templateRenderingService,
                                AttachmentService attachmentService,
+                               PrRecordsExportService prRecordsExportService,
                                MailDispatchService mailDispatchService,
                                AuditService auditService,
                                FeatureToggleService featureToggleService,
                                RateLimitService rateLimitService,
-                               @Value("${hs-notification.case-link.base-url}") String caseLinkBaseUrl) {
+                               @Value("${hs-notification.case-link.base-url}") String caseLinkBaseUrl,
+                               @Value("${hs-notification.attachments.storage-path:${java.io.tmpdir}/hs-notification-attachments}") String attachmentsStorageDir) {
         this.ruleRepository = ruleRepository;
         this.jobRepository = jobRepository;
         this.templateRepository = templateRepository;
         this.templateRenderingService = templateRenderingService;
         this.attachmentService = attachmentService;
+        this.prRecordsExportService = prRecordsExportService;
         this.mailDispatchService = mailDispatchService;
         this.auditService = auditService;
         this.featureToggleService = featureToggleService;
         this.rateLimitService = rateLimitService;
         this.caseLinkBaseUrl = caseLinkBaseUrl;
+        this.attachmentsStorageDir = attachmentsStorageDir;
     }
 
     /**
@@ -66,11 +82,17 @@ public class NotificationService {
      */
     private Map<String, Object> withComputedVariables(Map<String, Object> context) {
         Map<String, Object> enriched = new HashMap<>(context == null ? Map.of() : context);
-        Object caseId = enriched.get("case_id");
-        if (caseId != null && !caseId.toString().isBlank()) {
-            enriched.put("case_link", caseLinkBaseUrl + "/" + caseId);
+        String caseLink = computeCaseLink(enriched.get("case_id"));
+        if (caseLink != null) {
+            enriched.put("case_link", caseLink);
         }
         return enriched;
+    }
+
+    /** Single source of truth for case_link — reused by every send path that offers it. */
+    private String computeCaseLink(Object caseId) {
+        if (caseId == null || caseId.toString().isBlank()) return null;
+        return caseLinkBaseUrl + "/" + caseId;
     }
 
     @Transactional
@@ -189,6 +211,154 @@ public class NotificationService {
         mailDispatchService.attemptSend(job);
         return job;
     }
+
+    /**
+     * Ad-hoc/custom sends triggered from HyperSense PAS/BMS — a flexible payload
+     * that doesn't map to a pre-approved rule. Deliberately reuses the same job
+     * persistence, MailDispatchService dispatch (and therefore RetryScheduler),
+     * and AuditService logging as every other send path; this is not a parallel
+     * pipeline. includePrRecords fetches a PR-records CSV from the usage DB via
+     * PrRecordsExportService — never blocks the send on failure (see
+     * attachPrRecordsCsv). includeAttachment (e.g. dashboard snapshot) is still
+     * stubbed — flagged back in CustomSendResult.notices rather than silently
+     * ignored.
+     */
+    @Transactional
+    public CustomSendResult submitCustomNotification(Tenant tenant, SendCustomNotificationRequest request, String actor) {
+        if (!ALLOWED_CUSTOM_SCENARIOS.contains(request.scenario())) {
+            throw new IllegalArgumentException(
+                    "Unknown scenario: " + request.scenario() + " — must be one of " + ALLOWED_CUSTOM_SCENARIOS);
+        }
+        if (!featureToggleService.isNotificationsEnabled(tenant.getTenantId())) {
+            throw new FeatureDisabledException("Notifications disabled for tenant " + tenant.getTenantCode());
+        }
+
+        Map<String, Object> effectiveContext = new HashMap<>(request.context() == null ? Map.of() : request.context());
+        SendCustomNotificationRequest.Flags flags = request.flags();
+        boolean includeCaseLink = flags != null && Boolean.TRUE.equals(flags.includeCaseLink());
+        boolean includePrRecords = flags != null && Boolean.TRUE.equals(flags.includePrRecords());
+        boolean includeAttachment = flags != null && Boolean.TRUE.equals(flags.includeAttachment());
+
+        String caseLink = null;
+        if (includeCaseLink) {
+            caseLink = computeCaseLink(effectiveContext.get("case_id"));
+            if (caseLink != null) {
+                effectiveContext.put("case_link", caseLink);
+            }
+        }
+
+        String finalBody;
+        if (request.templateCode() != null && !request.templateCode().isBlank()) {
+            NotificationTemplate template = templateRepository
+                    .findByTenant_TenantIdAndTemplateCodeAndStatus(tenant.getTenantId(), request.templateCode(), "ACTIVE")
+                    .orElseThrow(() -> new IllegalArgumentException("Active template not found: " + request.templateCode()));
+            if (request.comment() != null) {
+                effectiveContext.put("comment", request.comment());
+            }
+            finalBody = templateRenderingService.render(template, effectiveContext).body();
+        } else {
+            StringBuilder body = new StringBuilder();
+            if (request.comment() != null && !request.comment().isBlank()) {
+                body.append("<p>").append(escapeHtml(request.comment())).append("</p>");
+            }
+            if (caseLink != null) {
+                body.append("<p><a href=\"").append(caseLink).append("\">View this case in HyperSense</a></p>");
+            }
+            finalBody = body.toString();
+        }
+
+        NotificationJob job = new NotificationJob();
+        job.setTenant(tenant);
+        job.setToAddresses(request.toAddresses());
+        job.setCcAddresses(request.ccAddresses() == null ? List.of() : request.ccAddresses());
+        job.setSubject(request.subject());
+        job.setRenderedBody(finalBody);
+        job.setContextJson(effectiveContext);
+        job.setMaxRetryCount(1);
+        job.setStatus("PENDING");
+        job.setAttachmentStatus("NOT_APPLICABLE");
+
+        List<String> notices = new ArrayList<>();
+        String prRecordsFailureReason = null;
+        if (includePrRecords) {
+            prRecordsFailureReason = attachPrRecordsCsv(job, effectiveContext);
+            if (prRecordsFailureReason == null) {
+                notices.add("PR records CSV attached.");
+            } else {
+                notices.add("PR records CSV not attached: " + prRecordsFailureReason);
+            }
+        }
+        if (includeAttachment) {
+            notices.add("includeAttachment was set, but attachment generation (e.g. dashboard snapshot) isn't wired yet — no attachment was generated for this send.");
+        }
+
+        job = jobRepository.save(job);
+
+        String detail = "Custom send (scenario=" + request.scenario() + ")"
+                + (request.templateCode() != null ? ", template=" + request.templateCode() : "");
+        auditService.log(tenant, job, null, "JOB_CREATED", detail, actor, null);
+
+        if (prRecordsFailureReason != null) {
+            auditService.log(tenant, job, null, "ATTACHMENT_FAILED",
+                    "PR records CSV not attached: " + prRecordsFailureReason, actor, null);
+        }
+
+        mailDispatchService.attemptSend(job);
+        return new CustomSendResult(job, notices);
+    }
+
+    /**
+     * Mirrors the production quarantine script: never blocks the send. Sets the
+     * job's attachment fields directly (GENERATED + path, or FAILED + reason)
+     * and returns null on success or a human-readable failure reason otherwise.
+     */
+    private String attachPrRecordsCsv(NotificationJob job, Map<String, Object> context) {
+        Object caseId = context.get("case_id");
+        Object catalogId = context.get("catalog_id");
+
+        PrRecordsExportService.ExportResult result = prRecordsExportService.export(caseId, catalogId);
+        if (!result.success()) {
+            job.setAttachmentStatus("FAILED");
+            job.setLastError("PR records CSV not attached: " + result.failureReason());
+            return result.failureReason();
+        }
+
+        Object caseTemplateName = context.get("case_template_name");
+        String displayName = caseTemplateName + "_" + caseId + ".csv";
+
+        try {
+            String path = writeToAttachmentStorage(result.csvBytes(), displayName);
+            job.setAttachmentPath(path);
+            job.setAttachmentStatus("GENERATED");
+            return null;
+        } catch (IOException e) {
+            log.warn("Failed to write PR records CSV to attachment storage for case_id={}: {}", caseId, e.getMessage());
+            job.setAttachmentStatus("FAILED");
+            job.setLastError("PR records CSV not attached: failed to write file: " + e.getMessage());
+            return "failed to write file: " + e.getMessage();
+        }
+    }
+
+    /** Same UUID__displayName storage convention AttachmentUploadController uses, so EmailChannelSender derives the right filename. */
+    private String writeToAttachmentStorage(byte[] content, String displayName) throws IOException {
+        String safeName = displayName.replaceAll("[^a-zA-Z0-9._-]", "_");
+        String storedName = UUID.randomUUID() + "__" + safeName;
+        Path dir = Path.of(attachmentsStorageDir);
+        Files.createDirectories(dir);
+        Path target = dir.resolve(storedName);
+        Files.write(target, content);
+        return target.toAbsolutePath().toString();
+    }
+
+    private String escapeHtml(String input) {
+        return input
+                .replace("&", "&amp;")
+                .replace("<", "&lt;")
+                .replace(">", "&gt;")
+                .replace("\"", "&quot;");
+    }
+
+    public record CustomSendResult(NotificationJob job, List<String> notices) {}
 
     private List<String> resolveRecipients(RecipientGroup group, String type) {
         if (group == null || group.getMembers() == null) return List.of();

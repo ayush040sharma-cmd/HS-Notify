@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { api } from '../api/client.js';
-import { Layers, X, ChevronRight, RefreshCw, Plus, Pencil, CheckCircle, AlertTriangle, XCircle } from 'lucide-react';
+import { Layers, X, ChevronRight, RefreshCw, Plus, Pencil, CheckCircle, AlertTriangle, XCircle, Trash2 } from 'lucide-react';
 
 function ChannelBadge({ c }) { return <span className={`badge badge-${(c||'EMAIL').toLowerCase()}`}>{c||'EMAIL'}</span>; }
 function StatusBadge({ s }) { return <span className={`badge badge-${s.toLowerCase()}`}>{s}</span>; }
@@ -42,6 +42,7 @@ export default function Templates() {
   const [pageError, setPageError] = useState(null);
   const [pageOk, setPageOk] = useState(null);
   const [approvingId, setApprovingId] = useState(null);
+  const [deletingId, setDeletingId] = useState(null);
 
   const load = () => api.listTemplates().then(setTemplates);
   useEffect(() => { load(); }, []);
@@ -60,6 +61,21 @@ export default function Templates() {
       setPageError(e?.response?.data?.error || e?.response?.data?.message || 'Approval failed');
     } finally {
       setApprovingId(null);
+    }
+  };
+
+  const remove = async (template) => {
+    if (!window.confirm(`Delete template "${template.templateCode}"? This cannot be undone.`)) return;
+    setPageError(null); setPageOk(null); setDeletingId(template.templateId);
+    try {
+      await api.deleteTemplate(template.templateId);
+      setPageOk('Template deleted');
+      setSelected(null);
+      load();
+    } catch (e) {
+      setPageError(e?.response?.data?.error || e?.response?.data?.message || 'Delete failed');
+    } finally {
+      setDeletingId(null);
     }
   };
 
@@ -126,6 +142,8 @@ export default function Templates() {
             </div>
             <div className="template-card-footer">
               <button className="btn btn-ghost btn-sm" onClick={(e) => { e.stopPropagation(); openEdit(t); }}><Pencil size={12} /> Edit</button>
+              <button className="btn btn-ghost btn-sm" disabled={deletingId === t.templateId}
+                onClick={(e) => { e.stopPropagation(); remove(t); }}><Trash2 size={12} /> Delete</button>
               <button className="btn btn-ghost btn-sm" onClick={(e) => { e.stopPropagation(); setSelected(t); }}>View Details <ChevronRight size={12} /></button>
             </div>
           </div>
@@ -197,6 +215,10 @@ export default function Templates() {
                       <CheckCircle size={12} /> Approve &amp; Activate
                     </button>
                   )}
+                  <button className="btn btn-danger btn-sm" disabled={deletingId === selected.templateId}
+                    onClick={() => remove(selected)}>
+                    <Trash2 size={12} /> Delete Template
+                  </button>
                 </div>
               </div>
             </div>
