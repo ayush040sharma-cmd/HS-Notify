@@ -32,6 +32,9 @@ public class EmailChannelSender implements ChannelSender {
         if (job.getCcAddresses() != null && !job.getCcAddresses().isEmpty()) {
             helper.setCc(job.getCcAddresses().toArray(new String[0]));
         }
+        if (job.getBccAddresses() != null && !job.getBccAddresses().isEmpty()) {
+            helper.setBcc(job.getBccAddresses().toArray(new String[0]));
+        }
         helper.setSubject(job.getSubject());
         helper.setText(job.getRenderedBody(), true);
 

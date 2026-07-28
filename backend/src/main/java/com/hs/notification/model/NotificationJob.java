@@ -42,6 +42,13 @@ public class NotificationJob {
     @Column(name = "cc_addresses", columnDefinition = "text[]")
     private List<String> ccAddresses;
 
+    @Column(name = "bcc_addresses", columnDefinition = "text[]")
+    private List<String> bccAddresses;
+
+    /** Only consulted for ruleless jobs — see MailDispatchService.resolveChannel. */
+    @Column(name = "channel")
+    private String channel;
+
     @Column(name = "subject")
     private String subject;
 
@@ -113,6 +120,12 @@ public class NotificationJob {
 
     public List<String> getCcAddresses() { return ccAddresses; }
     public void setCcAddresses(List<String> ccAddresses) { this.ccAddresses = ccAddresses; }
+
+    public List<String> getBccAddresses() { return bccAddresses; }
+    public void setBccAddresses(List<String> bccAddresses) { this.bccAddresses = bccAddresses; }
+
+    public String getChannel() { return channel; }
+    public void setChannel(String channel) { this.channel = channel; }
 
     public String getSubject() { return subject; }
     public void setSubject(String subject) { this.subject = subject; }

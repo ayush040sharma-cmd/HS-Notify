@@ -12,6 +12,7 @@ public record NotificationJobResponse(
         String status,
         List<String> toAddresses,
         List<String> ccAddresses,
+        List<String> bccAddresses,
         String subject,
         String attachmentStatus,
         Integer attemptCount,
@@ -22,9 +23,14 @@ public record NotificationJobResponse(
         OffsetDateTime sentAt
 ) {
     public static NotificationJobResponse from(NotificationJob job) {
-        String channel = (job.getRule() != null && job.getRule().getTemplate() != null)
-                ? job.getRule().getTemplate().getChannel()
-                : "EMAIL";
+        String channel;
+        if (job.getRule() != null && job.getRule().getTemplate() != null && job.getRule().getTemplate().getChannel() != null) {
+            channel = job.getRule().getTemplate().getChannel();
+        } else if (job.getChannel() != null && !job.getChannel().isBlank()) {
+            channel = job.getChannel();
+        } else {
+            channel = "EMAIL";
+        }
         return new NotificationJobResponse(
                 job.getJobId(),
                 job.getRule() != null ? job.getRule().getRuleCode() : null,
@@ -32,6 +38,7 @@ public record NotificationJobResponse(
                 job.getStatus(),
                 job.getToAddresses(),
                 job.getCcAddresses(),
+                job.getBccAddresses(),
                 job.getSubject(),
                 job.getAttachmentStatus(),
                 job.getAttemptCount(),

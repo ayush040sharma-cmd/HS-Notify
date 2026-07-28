@@ -1,5 +1,6 @@
 package com.hs.notification.service;
 
+import com.hs.notification.dto.NotifyRequest;
 import com.hs.notification.dto.SendCustomNotificationRequest;
 import com.hs.notification.exception.FeatureDisabledException;
 import com.hs.notification.exception.RateLimitExceededException;
@@ -163,83 +164,123 @@ public class NotificationService {
         return job;
     }
 
+    /**
+     * Manual/direct send from the operational UI. Predates the notification_action
+     * registry — has no scenario/action concept of its own — so this translates
+     * into a NotifyRequest using the reserved DIRECT_SEND action (seeded by the
+     * V9 migration, enabled by default) and delegates to notify(), rather than
+     * duplicating send logic. See notify() for the actual implementation.
+     */
     @Transactional
     public NotificationJob submitDirectNotification(Tenant tenant, List<String> to, List<String> cc,
                                                       String templateCode, Map<String, Object> context,
                                                       String subject, String htmlBody,
                                                       String attachmentPath, String actor) {
-        if (!featureToggleService.isNotificationsEnabled(tenant.getTenantId())) {
-            throw new FeatureDisabledException("Notifications disabled for tenant " + tenant.getTenantCode());
-        }
-
-        String finalSubject = subject;
-        String finalBody = htmlBody;
-        if (templateCode != null && !templateCode.isBlank()) {
-            NotificationTemplate template = templateRepository
-                    .findByTenant_TenantIdAndTemplateCodeAndStatus(tenant.getTenantId(), templateCode, "ACTIVE")
-                    .orElseThrow(() -> new IllegalArgumentException("Active template not found: " + templateCode));
-            TemplateRenderingService.RenderedContent rendered =
-                    templateRenderingService.render(template, withComputedVariables(context));
-            finalSubject = rendered.subject();
-            finalBody = rendered.body();
-        }
-
-        if (finalSubject == null || finalSubject.isBlank() || finalBody == null || finalBody.isBlank()) {
+        // notify()'s freeform branch is more lenient (send-custom's legacy contract
+        // tolerates an empty body) — preserve send-direct's original stricter
+        // validation and exact message here, before delegating.
+        if ((templateCode == null || templateCode.isBlank())
+                && (subject == null || subject.isBlank() || htmlBody == null || htmlBody.isBlank())) {
             throw new IllegalArgumentException("Either templateCode or both subject and htmlBody are required");
         }
 
-        NotificationJob job = new NotificationJob();
-        job.setTenant(tenant);
-        job.setToAddresses(to);
-        job.setCcAddresses(cc == null ? List.of() : cc);
-        job.setSubject(finalSubject);
-        job.setRenderedBody(finalBody);
-        job.setMaxRetryCount(1);
-        job.setStatus("PENDING");
-
-        if (attachmentPath != null && !attachmentPath.isBlank()) {
-            job.setAttachmentPath(attachmentPath);
-            job.setAttachmentStatus("GENERATED");
-        } else {
-            job.setAttachmentStatus("NOT_APPLICABLE");
-        }
-
-        job = jobRepository.save(job);
-
-        String detail = templateCode != null ? "Manual/direct send (template=" + templateCode + ")" : "Manual/direct send";
-        auditService.log(tenant, job, null, "JOB_CREATED", detail, actor, null);
-        mailDispatchService.attemptSend(job);
-        return job;
+        NotifyRequest request = new NotifyRequest(
+                "DIRECT_SEND", null, templateCode,
+                new NotifyRequest.Recipients(to, cc, null),
+                context, null,
+                subject, htmlBody, null, attachmentPath,
+                null, null, null);
+        return notify(tenant, request, actor).job();
     }
 
     /**
      * Ad-hoc/custom sends triggered from HyperSense PAS/BMS — a flexible payload
-     * that doesn't map to a pre-approved rule. Deliberately reuses the same job
-     * persistence, MailDispatchService dispatch (and therefore RetryScheduler),
-     * and AuditService logging as every other send path; this is not a parallel
-     * pipeline. includePrRecords fetches a PR-records CSV from the usage DB via
-     * PrRecordsExportService — never blocks the send on failure (see
-     * attachPrRecordsCsv). includeAttachment (e.g. dashboard snapshot) is still
-     * stubbed — flagged back in CustomSendResult.notices rather than silently
-     * ignored.
+     * that doesn't map to a pre-approved rule. Translates into a NotifyRequest
+     * and delegates to notify() rather than duplicating send logic — see
+     * notify() for the actual implementation.
      */
     @Transactional
     public CustomSendResult submitCustomNotification(Tenant tenant, SendCustomNotificationRequest request, String actor) {
-        boolean actionUsable = actionRepository.findByCode(request.scenario())
-                .map(NotificationAction::isEnabled)
-                .orElse(false);
-        if (!actionUsable) {
-            throw new IllegalArgumentException("Unknown or disabled scenario: " + request.scenario());
+        SendCustomNotificationRequest.Flags flags = request.flags();
+        NotifyRequest.AttachmentOptions attachmentOptions = flags != null
+                ? new NotifyRequest.AttachmentOptions(flags.includeCaseLink(), flags.includePrRecords(), flags.includeAttachment())
+                : null;
+
+        NotifyRequest notifyRequest = new NotifyRequest(
+                request.scenario(), null, request.templateCode(),
+                new NotifyRequest.Recipients(request.toAddresses(), request.ccAddresses(), null),
+                request.context(), attachmentOptions,
+                request.subject(), null, request.comment(), null,
+                null, null, null);
+
+        NotifyResult result = notify(tenant, notifyRequest, actor);
+        return new CustomSendResult(result.job(), result.notices());
+    }
+
+    /**
+     * The unified send engine behind POST /api/v1/notify (and, internally,
+     * every other send path except rule-based, which stays entirely inside
+     * submitRuleBasedNotification since notify() itself delegates to it —
+     * routing an already-rule-shaped request back through notify() would be
+     * circular). action is resolved against notification_rule first (by
+     * ruleCode — reuses the existing, well-tested rule pipeline unchanged,
+     * recipients.to[0] optionally overriding the TO list exactly like
+     * submitRuleBasedNotification's recipientOverride), then against the
+     * notification_action registry (ad-hoc send, this method's own logic
+     * below). Unknown/disabled in both places → 400.
+     */
+    @Transactional
+    public NotifyResult notify(Tenant tenant, NotifyRequest request, String actor) {
+        Optional<NotificationRule> rule = ruleRepository
+                .findByTenant_TenantIdAndRuleCode(tenant.getTenantId(), request.action());
+        if (rule.isPresent()) {
+            String recipientOverride = (request.recipients() != null
+                    && request.recipients().to() != null
+                    && !request.recipients().to().isEmpty())
+                    ? request.recipients().to().get(0) : null;
+            String idempotencyKey = request.idempotencyKey() != null
+                    ? request.idempotencyKey() : UUID.randomUUID().toString();
+            NotificationJob job = submitRuleBasedNotification(
+                    tenant, request.action(), idempotencyKey,
+                    request.sourceReference(), request.sourceType(),
+                    request.payload() != null ? request.payload() : Map.of(),
+                    recipientOverride);
+            return new NotifyResult(job, List.of());
         }
+
+        NotificationAction action = actionRepository.findByCode(request.action())
+                .filter(NotificationAction::isEnabled)
+                .orElseThrow(() -> new IllegalArgumentException("Unknown or disabled action: " + request.action()));
+
         if (!featureToggleService.isNotificationsEnabled(tenant.getTenantId())) {
             throw new FeatureDisabledException("Notifications disabled for tenant " + tenant.getTenantCode());
         }
 
-        Map<String, Object> effectiveContext = new HashMap<>(request.context() == null ? Map.of() : request.context());
-        SendCustomNotificationRequest.Flags flags = request.flags();
-        boolean includeCaseLink = flags != null && Boolean.TRUE.equals(flags.includeCaseLink());
-        boolean includePrRecords = flags != null && Boolean.TRUE.equals(flags.includePrRecords());
-        boolean includeAttachment = flags != null && Boolean.TRUE.equals(flags.includeAttachment());
+        if (request.idempotencyKey() != null && !request.idempotencyKey().isBlank()) {
+            Optional<NotificationJob> existing = jobRepository
+                    .findByTenant_TenantIdAndIdempotencyKey(tenant.getTenantId(), request.idempotencyKey());
+            if (existing.isPresent()) {
+                log.info("Idempotent replay detected for key={}, returning existing job={}",
+                        request.idempotencyKey(), existing.get().getJobId());
+                return new NotifyResult(existing.get(), List.of());
+            }
+        }
+
+        List<String> to = request.recipients() != null && request.recipients().to() != null
+                ? request.recipients().to() : List.of();
+        if (to.isEmpty()) {
+            throw new IllegalArgumentException("recipients.to is required for action " + action.getCode());
+        }
+        List<String> cc = request.recipients() != null && request.recipients().cc() != null
+                ? request.recipients().cc() : List.of();
+        List<String> bcc = request.recipients() != null && request.recipients().bcc() != null
+                ? request.recipients().bcc() : List.of();
+
+        Map<String, Object> effectiveContext = new HashMap<>(request.payload() == null ? Map.of() : request.payload());
+        NotifyRequest.AttachmentOptions opts = request.attachmentOptions();
+        boolean includeCaseLink = opts != null && Boolean.TRUE.equals(opts.includeCaseLink());
+        boolean includePrRecords = opts != null && Boolean.TRUE.equals(opts.includePrRecords());
+        boolean includeAttachment = opts != null && Boolean.TRUE.equals(opts.includeAttachment());
 
         String caseLink = null;
         if (includeCaseLink) {
@@ -249,16 +290,30 @@ public class NotificationService {
             }
         }
 
+        String finalSubject;
         String finalBody;
-        if (request.templateCode() != null && !request.templateCode().isBlank()) {
+        if (request.template() != null && !request.template().isBlank()) {
             NotificationTemplate template = templateRepository
-                    .findByTenant_TenantIdAndTemplateCodeAndStatus(tenant.getTenantId(), request.templateCode(), "ACTIVE")
-                    .orElseThrow(() -> new IllegalArgumentException("Active template not found: " + request.templateCode()));
+                    .findByTenant_TenantIdAndTemplateCodeAndStatus(tenant.getTenantId(), request.template(), "ACTIVE")
+                    .orElseThrow(() -> new IllegalArgumentException("Active template not found: " + request.template()));
             if (request.comment() != null) {
                 effectiveContext.put("comment", request.comment());
             }
-            finalBody = templateRenderingService.render(template, effectiveContext).body();
+            TemplateRenderingService.RenderedContent rendered =
+                    templateRenderingService.render(template, effectiveContext);
+            finalSubject = rendered.subject();
+            finalBody = rendered.body();
+        } else if (request.body() != null && !request.body().isBlank()) {
+            finalSubject = request.subject();
+            finalBody = request.body();
+            if (finalSubject == null || finalSubject.isBlank() || finalBody == null || finalBody.isBlank()) {
+                throw new IllegalArgumentException("Either template or both subject and body are required");
+            }
         } else {
+            if (request.subject() == null || request.subject().isBlank()) {
+                throw new IllegalArgumentException("subject is required");
+            }
+            finalSubject = request.subject();
             StringBuilder body = new StringBuilder();
             if (request.comment() != null && !request.comment().isBlank()) {
                 body.append("<p>").append(escapeHtml(request.comment())).append("</p>");
@@ -271,9 +326,11 @@ public class NotificationService {
 
         NotificationJob job = new NotificationJob();
         job.setTenant(tenant);
-        job.setToAddresses(request.toAddresses());
-        job.setCcAddresses(request.ccAddresses() == null ? List.of() : request.ccAddresses());
-        job.setSubject(request.subject());
+        job.setToAddresses(to);
+        job.setCcAddresses(cc);
+        job.setBccAddresses(bcc);
+        job.setChannel(request.channel() != null && !request.channel().isBlank() ? request.channel() : action.getDefaultChannel());
+        job.setSubject(finalSubject);
         job.setRenderedBody(finalBody);
         job.setContextJson(effectiveContext);
         job.setMaxRetryCount(1);
@@ -282,13 +339,14 @@ public class NotificationService {
 
         List<String> notices = new ArrayList<>();
         String prRecordsFailureReason = null;
-        if (includePrRecords) {
+        if (request.attachmentPath() != null && !request.attachmentPath().isBlank()) {
+            job.setAttachmentPath(request.attachmentPath());
+            job.setAttachmentStatus("GENERATED");
+        } else if (includePrRecords) {
             prRecordsFailureReason = attachPrRecordsCsv(job, effectiveContext);
-            if (prRecordsFailureReason == null) {
-                notices.add("PR records CSV attached.");
-            } else {
-                notices.add("PR records CSV not attached: " + prRecordsFailureReason);
-            }
+            notices.add(prRecordsFailureReason == null
+                    ? "PR records CSV attached."
+                    : "PR records CSV not attached: " + prRecordsFailureReason);
         }
         if (includeAttachment) {
             notices.add("includeAttachment was set, but attachment generation (e.g. dashboard snapshot) isn't wired yet — no attachment was generated for this send.");
@@ -296,8 +354,8 @@ public class NotificationService {
 
         job = jobRepository.save(job);
 
-        String detail = "Custom send (scenario=" + request.scenario() + ")"
-                + (request.templateCode() != null ? ", template=" + request.templateCode() : "");
+        String detail = "Notify (action=" + action.getCode() + ")"
+                + (request.template() != null ? ", template=" + request.template() : "");
         auditService.log(tenant, job, null, "JOB_CREATED", detail, actor, null);
 
         if (prRecordsFailureReason != null) {
@@ -306,8 +364,10 @@ public class NotificationService {
         }
 
         mailDispatchService.attemptSend(job);
-        return new CustomSendResult(job, notices);
+        return new NotifyResult(job, notices);
     }
+
+    public record NotifyResult(NotificationJob job, List<String> notices) {}
 
     /**
      * Mirrors the production quarantine script: never blocks the send. Sets the

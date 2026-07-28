@@ -18,10 +18,11 @@ import java.util.Optional;
  * Runs after ApiKeyAuthFilter (which resolves the tenant and is left
  * untouched) and additionally requires a valid Bearer JWT for everything
  * except:
- *  - /api/v1/notifications/**  — the HS workflow-engine trigger endpoint;
- *    authenticated purely via tenant API key, called by machines, not by a
- *    logged-in operator, and also reused by the dashboard's own "Send Test
- *    Notification" page which already carries the API key.
+ *  - /api/v1/notifications/**, /api/v1/notify — the HS workflow-engine
+ *    trigger endpoints; authenticated purely via tenant API key, called by
+ *    machines, not by a logged-in operator, and also reused by the
+ *    dashboard's own "Send Test Notification" page which already carries
+ *    the API key.
  *  - /api/v1/auth/**           — the login endpoint itself.
  *  - /api/v1/admin/**          — already separately gated by X-Admin-Token.
  *  - /actuator, /docs, /api-docs, /swagger-ui — ops/health/docs surfaces.
@@ -43,7 +44,8 @@ public class AdminJwtAuthFilter extends OncePerRequestFilter {
         String path = request.getRequestURI();
         if (path.startsWith("/actuator") || path.startsWith("/docs") || path.startsWith("/api-docs")
                 || path.startsWith("/swagger-ui") || path.startsWith("/api/v1/admin")
-                || path.startsWith("/api/v1/auth") || path.startsWith("/api/v1/notifications")) {
+                || path.startsWith("/api/v1/auth") || path.startsWith("/api/v1/notifications")
+                || path.equals("/api/v1/notify")) {
             filterChain.doFilter(request, response);
             return;
         }

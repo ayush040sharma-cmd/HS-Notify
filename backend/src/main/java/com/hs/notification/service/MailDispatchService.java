@@ -91,6 +91,9 @@ public class MailDispatchService {
                 && job.getRule().getTemplate().getChannel() != null) {
             return job.getRule().getTemplate().getChannel();
         }
+        if (job.getChannel() != null && !job.getChannel().isBlank()) {
+            return job.getChannel();
+        }
         return "EMAIL";
     }
 
