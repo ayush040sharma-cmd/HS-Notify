@@ -31,6 +31,16 @@ services:
       SMTP_AUTH: "false"
       SMTP_STARTTLS: "false"
       MAIL_FROM_ADDRESS: support.alerts@subex.com
+      # Read from .env at repo root (gitignored) — see .env.example. Left
+      # unset here on purpose: no secrets in this committed file.
+      USAGE_DB_URL: ${USAGE_DB_URL:-}
+      USAGE_DB_USERNAME: ${USAGE_DB_USERNAME:-}
+      USAGE_DB_PASSWORD: ${USAGE_DB_PASSWORD:-}
+      CASE_TBL_DB_URL: ${CASE_TBL_DB_URL:-}
+      CASE_TBL_DB_USERNAME: ${CASE_TBL_DB_USERNAME:-}
+      CASE_TBL_DB_PASSWORD: ${CASE_TBL_DB_PASSWORD:-}
+      CASE_WATCH_ENABLED: ${CASE_WATCH_ENABLED:-false}
+      CASE_WATCH_TENANT_CODE: ${CASE_WATCH_TENANT_CODE:-}
     depends_on:
       postgres:
         condition: service_healthy
