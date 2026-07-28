@@ -123,6 +123,19 @@ const liveApi = {
 
   users: () => client.get('/users').then(r => r.data),
   apiKeys: () => client.get('/users/api-keys').then(r => r.data),
+
+  listActions: () => client.get('/actions').then(r => r.data),
+  createAction: (payload) => client.post('/actions', payload).then(r => r.data),
+  updateAction: (id, payload) => client.put(`/actions/${id}`, payload).then(r => r.data),
+  deleteAction: (id) => client.delete(`/actions/${id}`).then(r => r.data),
+  actionSchema: (code) => client.get(`/actions/${code}/schema`).then(r => r.data),
+
+  listFormSchemas: () => client.get('/form-schemas').then(r => r.data),
+  createFormSchema: (payload) => client.post('/form-schemas', payload).then(r => r.data),
+  updateFormSchema: (id, payload) => client.put(`/form-schemas/${id}`, payload).then(r => r.data),
+  deleteFormSchema: (id) => client.delete(`/form-schemas/${id}`).then(r => r.data),
+
+  notify: (payload) => client.post('/notify', payload).then(r => r.data),
 };
 
 // Switch to mock API when VITE_MOCK=true (no backend required)

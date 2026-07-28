@@ -11,6 +11,8 @@ import QueueMonitor from './pages/QueueMonitor.jsx';
 import SendNotification from './pages/SendNotification.jsx';
 import NotificationRules from './pages/NotificationRules.jsx';
 import Templates from './pages/Templates.jsx';
+import NotificationActions from './pages/NotificationActions.jsx';
+import FormSchemas from './pages/FormSchemas.jsx';
 import SmtpConfig from './pages/SmtpConfig.jsx';
 import WhatsAppConfig from './pages/WhatsAppConfig.jsx';
 import ChannelPage from './pages/ChannelPage.jsx';
@@ -48,6 +50,8 @@ export default function App() {
           <Route path="/send" element={<SendNotification />} />
           <Route path="/rules" element={<NotificationRules />} />
           <Route path="/templates" element={<Templates />} />
+          <Route path="/actions" element={<NotificationActions />} />
+          <Route path="/form-schemas" element={<FormSchemas />} />
           <Route path="/channels/email" element={<SmtpConfig />} />
           <Route path="/channels/whatsapp" element={<WhatsAppConfig />} />
           <Route path="/channels/:channel" element={<ChannelPage />} />

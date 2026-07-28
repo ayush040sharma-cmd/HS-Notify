@@ -278,6 +278,24 @@ export const MOCK = {
     { keyId: 1, prefix: 'dev-', label: 'Dev Local', tenantCode: 'SUBEX', status: 'ACTIVE', createdAt: h(720), lastUsedAt: h(0) },
     { keyId: 2, prefix: 'stg-', label: 'Staging CI', tenantCode: 'SUBEX', status: 'ACTIVE', createdAt: h(360), lastUsedAt: h(2) },
   ],
+
+  formSchemas: [
+    {
+      id: 1, name: 'Fraud Alert Form', description: 'Dynamic form for the Fraud Alert notification action', version: 1,
+      fields: [
+        { id: 1, fieldKey: 'to_address', label: 'To Address', fieldType: 'EMAIL', required: true, options: [], validations: [] },
+        { id: 2, fieldKey: 'severity', label: 'Severity', fieldType: 'DROPDOWN', required: true,
+          options: [{ optionValue: 'LOW', optionLabel: 'Low' }, { optionValue: 'HIGH', optionLabel: 'High' }], validations: [] },
+        { id: 3, fieldKey: 'custom_message', label: 'Custom Message', fieldType: 'TEXTAREA', required: false, options: [], validations: [] },
+      ],
+    },
+  ],
+
+  actions: [
+    { id: 1, code: 'FRAUD_ALERT', displayName: 'Fraud Alert', description: 'Alert sent when suspicious subscriber activity is detected', enabled: true, approvalRequired: false, defaultChannel: 'EMAIL', displayOrder: 10, formSchemaId: 1, createdBy: 'system-migration' },
+    { id: 2, code: 'ZERO_TOLERANCE', displayName: 'Zero Tolerance Alert', description: 'High-severity alert for zero-tolerance fraud policy violations', enabled: true, approvalRequired: false, defaultChannel: 'EMAIL', displayOrder: 20, formSchemaId: null, createdBy: 'system-migration' },
+    { id: 3, code: 'VENDOR_EMAIL', displayName: 'Vendor Notification', description: 'Notification sent to an external vendor or partner', enabled: true, approvalRequired: false, defaultChannel: 'EMAIL', displayOrder: 30, formSchemaId: null, createdBy: 'system-migration' },
+  ],
 };
 
 const delay = (ms = 300) => new Promise(r => setTimeout(r, ms));
@@ -364,5 +382,53 @@ export const mockApi = {
     subject: payload.subject, attachmentStatus: null,
     attemptCount: 1, maxRetryCount: 1, nextRetryAt: null, lastError: null,
     createdAt: new Date().toISOString(), sentAt: new Date().toISOString()
+  })),
+
+  listActions: () => delay().then(() => [...MOCK.actions]),
+  createAction: (payload) => delay().then(() => {
+    const a = { id: MOCK.actions.length + 1, createdBy: 'mock-user', ...payload };
+    MOCK.actions.push(a);
+    return a;
+  }),
+  updateAction: (id, payload) => delay().then(() => {
+    const idx = MOCK.actions.findIndex(a => a.id === id);
+    if (idx >= 0) MOCK.actions[idx] = { ...MOCK.actions[idx], ...payload };
+    return MOCK.actions[idx];
+  }),
+  deleteAction: (id) => delay().then(() => {
+    MOCK.actions = MOCK.actions.filter(a => a.id !== id);
+    return null;
+  }),
+  actionSchema: (code) => delay().then(() => {
+    const action = MOCK.actions.find(a => a.code === code);
+    const schema = action?.formSchemaId ? MOCK.formSchemas.find(s => s.id === action.formSchemaId) : null;
+    return { actionCode: code, schema: schema || null };
+  }),
+
+  listFormSchemas: () => delay().then(() => [...MOCK.formSchemas]),
+  createFormSchema: (payload) => delay().then(() => {
+    const s = { id: MOCK.formSchemas.length + 1, version: 1, ...payload };
+    MOCK.formSchemas.push(s);
+    return s;
+  }),
+  updateFormSchema: (id, payload) => delay().then(() => {
+    const idx = MOCK.formSchemas.findIndex(s => s.id === id);
+    if (idx >= 0) MOCK.formSchemas[idx] = { ...MOCK.formSchemas[idx], ...payload, version: (MOCK.formSchemas[idx].version || 1) + 1 };
+    return MOCK.formSchemas[idx];
+  }),
+  deleteFormSchema: (id) => delay().then(() => {
+    MOCK.formSchemas = MOCK.formSchemas.filter(s => s.id !== id);
+    return null;
+  }),
+
+  notify: (payload) => delay(600).then(() => ({
+    job: {
+      jobId: jobIdSeq++, ruleCode: null, channel: payload.channel || 'EMAIL', status: 'SENT',
+      toAddresses: payload.recipients?.to || [], ccAddresses: payload.recipients?.cc || [],
+      bccAddresses: payload.recipients?.bcc || [], subject: payload.subject || 'Mock: notify send',
+      attachmentStatus: 'NOT_APPLICABLE', attemptCount: 1, maxRetryCount: 1, nextRetryAt: null, lastError: null,
+      createdAt: new Date().toISOString(), sentAt: new Date().toISOString(),
+    },
+    notices: [],
   })),
 };

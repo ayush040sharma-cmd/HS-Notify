@@ -3,7 +3,7 @@ import { NavLink, useLocation } from 'react-router-dom';
 import {
   LayoutDashboard, Bell, ListChecks, Layers, Mail, MessageCircle,
   Shield, Activity, FileText, BarChart3,
-  Users, Send, Clock, AlertTriangle
+  Users, Send, Clock, AlertTriangle, Zap, LayoutTemplate
 } from 'lucide-react';
 
 const NavSection = ({ label, children }) => (
@@ -47,6 +47,8 @@ export default function Sidebar() {
       <NavSection label="Rules & Templates">
         <Item to="/rules" icon={ListChecks} label="Notification Rules" />
         <Item to="/templates" icon={Layers} label="Templates" />
+        <Item to="/actions" icon={Zap} label="Notification Actions" />
+        <Item to="/form-schemas" icon={LayoutTemplate} label="Form Schemas" />
       </NavSection>
 
       <NavSection label="Channels">

@@ -1,14 +1,275 @@
 import React, { useState, useEffect } from 'react';
 import { api } from '../api/client.js';
-import { Send, CheckCircle, AlertTriangle, Paperclip, X } from 'lucide-react';
+import { Send, CheckCircle, AlertTriangle, Paperclip, X, Zap } from 'lucide-react';
 
 export default function SendNotification() {
   return (
-    <div className="grid grid-2" style={{ gap: 20 }}>
-      <SendViaRule />
-      <SendDirect />
+    <div>
+      <div style={{ marginBottom: 20 }}>
+        <SendViaAction />
+      </div>
+      <div className="grid grid-2" style={{ gap: 20 }}>
+        <SendViaRule />
+        <SendDirect />
+      </div>
     </div>
   );
+}
+
+/**
+ * The dynamic notification wizard: pick an action from the Notification
+ * Action Registry, render its form_schema (if any) field-by-field, and
+ * submit through the unified POST /api/v1/notify engine. No hardcoded
+ * per-action form — DynamicField below renders purely off field metadata.
+ */
+function SendViaAction() {
+  const [actions, setActions] = useState([]);
+  const [actionCode, setActionCode] = useState('');
+  const [schema, setSchema] = useState(null);
+  const [values, setValues] = useState({});
+  const [recipientGroups, setRecipientGroups] = useState([]);
+  const [result, setResult] = useState(null);
+  const [notices, setNotices] = useState([]);
+  const [error, setError] = useState(null);
+  const [sending, setSending] = useState(false);
+  const [loadingSchema, setLoadingSchema] = useState(false);
+
+  useEffect(() => {
+    api.listActions().then(list => {
+      const enabled = list.filter(a => a.enabled);
+      setActions(enabled);
+      if (enabled.length > 0) setActionCode(enabled[0].code);
+    }).catch(() => setActions([]));
+    api.ruleFormOptions().then(o => setRecipientGroups(o.recipientGroups || [])).catch(() => {});
+  }, []);
+
+  useEffect(() => {
+    if (!actionCode) { setSchema(null); return; }
+    setLoadingSchema(true);
+    setValues({});
+    api.actionSchema(actionCode).then(res => {
+      setSchema(res.schema);
+      const initial = {};
+      (res.schema?.fields || []).forEach(f => { if (f.defaultValue) initial[f.fieldKey] = f.defaultValue; });
+      setValues(initial);
+    }).catch(() => setSchema(null)).finally(() => setLoadingSchema(false));
+  }, [actionCode]);
+
+  const setValue = (key, val) => setValues(v => ({ ...v, [key]: val }));
+
+  const isVisible = (field) => {
+    if (!field.conditionalOnFieldKey) return true;
+    return String(values[field.conditionalOnFieldKey] ?? '') === String(field.conditionalOnValue ?? '');
+  };
+
+  const submit = async () => {
+    setError(null); setResult(null); setNotices([]);
+
+    const toRaw = values['to_address'] ?? '';
+    const to = String(toRaw).split(',').map(s => s.trim()).filter(Boolean);
+    if (to.length === 0) { setError('At least one To address is required'); return; }
+    const cc = String(values['cc_address'] ?? '').split(',').map(s => s.trim()).filter(Boolean);
+    const bcc = String(values['bcc_address'] ?? '').split(',').map(s => s.trim()).filter(Boolean);
+
+    // Everything except the well-known recipient/flag/subject keys becomes
+    // template/context payload — this is what lets the wizard stay generic
+    // across any action's schema without per-action frontend code.
+    const reserved = new Set(['to_address', 'cc_address', 'bcc_address', 'subject',
+      'include_case_link', 'include_pr_records', 'include_attachment']);
+    const payload = {};
+    Object.entries(values).forEach(([k, v]) => {
+      if (!reserved.has(k) && v !== '' && v !== undefined && v !== null) payload[k] = v;
+    });
+
+    setSending(true);
+    try {
+      const request = {
+        action: actionCode,
+        recipients: { to, cc, bcc },
+        subject: values.subject || undefined,
+        comment: !schema ? (values.comment || undefined) : undefined,
+        payload,
+        attachmentOptions: {
+          includeCaseLink: !!values.include_case_link,
+          includePrRecords: !!values.include_pr_records,
+          includeAttachment: !!values.include_attachment,
+        },
+      };
+      const res = await api.notify(request);
+      setResult(res.job);
+      setNotices(res.notices || []);
+    } catch (e) {
+      setError(e?.response?.data?.error || e?.response?.data?.message || 'Send failed');
+    } finally {
+      setSending(false);
+    }
+  };
+
+  return (
+    <div className="card">
+      <div className="card-title mb-16"><Zap size={14} /> Notification Wizard</div>
+      <ResultBanner result={result} error={error} />
+      {notices.length > 0 && (
+        <div className="fs-12 text-muted mb-12">{notices.join(' ')}</div>
+      )}
+
+      <div className="form-group mb-16">
+        <label className="form-label">Notification Action</label>
+        {actions.length === 0 ? (
+          <div className="fs-12 text-muted">No enabled actions — create one on the Notification Actions page.</div>
+        ) : (
+          <select className="select" value={actionCode} onChange={e => setActionCode(e.target.value)}>
+            {actions.map(a => <option key={a.code} value={a.code}>{a.displayName} ({a.code})</option>)}
+          </select>
+        )}
+      </div>
+
+      {loadingSchema && <div className="fs-12 text-muted">Loading form…</div>}
+
+      {!loadingSchema && !schema && actionCode && (
+        <div className="fs-12 text-muted mb-12">
+          No dynamic form defined for this action yet — using a generic To/Subject/Comment form.
+        </div>
+      )}
+
+      {!loadingSchema && !schema && actionCode && (
+        <>
+          <div className="form-group mb-12">
+            <label className="form-label">To</label>
+            <input className="input" value={values.to_address || ''} onChange={e => setValue('to_address', e.target.value)} placeholder="Comma-separated email addresses" />
+          </div>
+          <div className="form-group mb-12">
+            <label className="form-label">Subject</label>
+            <input className="input" value={values.subject || ''} onChange={e => setValue('subject', e.target.value)} />
+          </div>
+          <div className="form-group mb-16">
+            <label className="form-label">Comment</label>
+            <textarea className="textarea" rows={3} value={values.comment || ''} onChange={e => setValue('comment', e.target.value)} />
+          </div>
+        </>
+      )}
+
+      {!loadingSchema && schema && (
+        <div className="mb-16">
+          {schema.fields.filter(isVisible).map(field => (
+            <DynamicField key={field.fieldKey} field={field} value={values[field.fieldKey]}
+              onChange={v => setValue(field.fieldKey, v)} recipientGroups={recipientGroups} />
+          ))}
+        </div>
+      )}
+
+      <button className="btn btn-primary" onClick={submit} disabled={sending || !actionCode}>
+        {sending ? 'Sending…' : <><Send size={13} /> Send</>}
+      </button>
+    </div>
+  );
+}
+
+/** Renders one field purely from its metadata — no per-action/per-field-key branching. */
+function DynamicField({ field, value, onChange, recipientGroups }) {
+  const label = <label className="form-label">{field.label}{field.required ? ' *' : ''}</label>;
+
+  switch (field.fieldType) {
+    case 'TEXTAREA':
+      return (
+        <div className="form-group mb-12">
+          {label}
+          <textarea className="textarea" rows={3} value={value || ''} placeholder={field.placeholder || ''}
+            onChange={e => onChange(e.target.value)} />
+          {field.helpText && <div className="fs-11 text-muted mt-4">{field.helpText}</div>}
+        </div>
+      );
+    case 'DROPDOWN':
+      return (
+        <div className="form-group mb-12">
+          {label}
+          <select className="select" value={value || ''} onChange={e => onChange(e.target.value)}>
+            <option value="">— select —</option>
+            {(field.options || []).map(o => <option key={o.optionValue} value={o.optionValue}>{o.optionLabel}</option>)}
+          </select>
+        </div>
+      );
+    case 'RADIO':
+      return (
+        <div className="form-group mb-12">
+          {label}
+          <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
+            {(field.options || []).map(o => (
+              <label key={o.optionValue} style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, cursor: 'pointer' }}>
+                <input type="radio" name={field.fieldKey} checked={value === o.optionValue} onChange={() => onChange(o.optionValue)} />
+                {o.optionLabel}
+              </label>
+            ))}
+          </div>
+        </div>
+      );
+    case 'CHECKBOX':
+      return (
+        <div className="form-group mb-12">
+          <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', fontSize: 13 }}>
+            <span className="toggle">
+              <input type="checkbox" checked={!!value} onChange={e => onChange(e.target.checked)} />
+              <span className="toggle-slider" />
+            </span>
+            {field.label}
+          </label>
+          {field.helpText && <div className="fs-11 text-muted mt-4">{field.helpText}</div>}
+        </div>
+      );
+    case 'DATE':
+      return (
+        <div className="form-group mb-12">
+          {label}
+          <input className="input" type="date" value={value || ''} onChange={e => onChange(e.target.value)} />
+        </div>
+      );
+    case 'EMAIL':
+      return (
+        <div className="form-group mb-12">
+          {label}
+          <input className="input" type="email" value={value || ''} placeholder={field.placeholder || ''} onChange={e => onChange(e.target.value)} />
+        </div>
+      );
+    case 'FILE_UPLOAD':
+      return (
+        <div className="form-group mb-12">
+          {label}
+          <input type="file" onChange={async e => {
+            const file = e.target.files?.[0];
+            if (!file) return;
+            const uploaded = await api.uploadAttachment(file);
+            onChange(uploaded.path);
+          }} />
+          {value && <div className="fs-11 text-muted mt-4">Uploaded: {value}</div>}
+        </div>
+      );
+    case 'DYNAMIC_LOOKUP':
+      if (field.lookupSource === 'recipient-groups') {
+        return (
+          <div className="form-group mb-12">
+            {label}
+            <select className="select" value={value || ''} onChange={e => onChange(e.target.value)}>
+              <option value="">— select —</option>
+              {recipientGroups.map(g => <option key={g.groupCode} value={g.groupCode}>{g.groupCode}</option>)}
+            </select>
+          </div>
+        );
+      }
+      return (
+        <div className="form-group mb-12">
+          {label}
+          <input className="input" value={value || ''} placeholder={`(dynamic lookup: ${field.lookupSource || 'unconfigured'})`} onChange={e => onChange(e.target.value)} />
+        </div>
+      );
+    default: // TEXTBOX and anything unrecognized
+      return (
+        <div className="form-group mb-12">
+          {label}
+          <input className="input" value={value || ''} placeholder={field.placeholder || ''} onChange={e => onChange(e.target.value)} />
+          {field.helpText && <div className="fs-11 text-muted mt-4">{field.helpText}</div>}
+        </div>
+      );
+  }
 }
 
 function ResultBanner({ result, error }) {
