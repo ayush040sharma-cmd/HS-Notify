@@ -8,10 +8,11 @@ import java.util.Map;
 
 /**
  * Ad-hoc/custom notification payload from HyperSense PAS/BMS — doesn't map to
- * a pre-approved rule. scenario must be one of FRAUD_ALERT, ZERO_TOLERANCE,
- * VENDOR_EMAIL, CASE_SUMMARY, PR_CLOSE (validated in NotificationService,
- * used for audit-log categorization only — it doesn't otherwise change
- * behavior).
+ * a pre-approved rule. scenario must match an enabled code in the
+ * notification_action registry (see NotificationActionController /
+ * NotificationService.submitCustomNotification) — no longer a fixed set of
+ * Java constants, so new scenarios can be added via the actions API without
+ * a code change.
  */
 public record SendCustomNotificationRequest(
         @NotBlank String scenario,
@@ -24,8 +25,9 @@ public record SendCustomNotificationRequest(
         Flags flags
 ) {
     /**
-     * includePrRecords and includeAttachment are accepted but stubbed for now —
-     * see NotificationService.submitCustomNotification and the returned notices.
+     * includePrRecords fetches a real PR-records CSV (see PrRecordsExportService).
+     * includeAttachment (e.g. dashboard snapshot) is still stubbed — see
+     * NotificationService.submitCustomNotification and the returned notices.
      */
     public record Flags(Boolean includeCaseLink, Boolean includePrRecords, Boolean includeAttachment) {}
 }

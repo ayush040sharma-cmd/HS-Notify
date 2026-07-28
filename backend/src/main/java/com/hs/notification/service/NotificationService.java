@@ -5,6 +5,7 @@ import com.hs.notification.exception.FeatureDisabledException;
 import com.hs.notification.exception.RateLimitExceededException;
 import com.hs.notification.exception.RuleNotActiveException;
 import com.hs.notification.model.*;
+import com.hs.notification.repository.NotificationActionRepository;
 import com.hs.notification.repository.NotificationJobRepository;
 import com.hs.notification.repository.NotificationRuleRepository;
 import com.hs.notification.repository.NotificationTemplateRepository;
@@ -23,7 +24,6 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
-import java.util.Set;
 import java.util.UUID;
 import java.util.stream.Collectors;
 
@@ -32,12 +32,10 @@ public class NotificationService {
 
     private static final Logger log = LoggerFactory.getLogger(NotificationService.class);
 
-    private static final Set<String> ALLOWED_CUSTOM_SCENARIOS = Set.of(
-            "FRAUD_ALERT", "ZERO_TOLERANCE", "VENDOR_EMAIL", "CASE_SUMMARY", "PR_CLOSE");
-
     private final NotificationRuleRepository ruleRepository;
     private final NotificationJobRepository jobRepository;
     private final NotificationTemplateRepository templateRepository;
+    private final NotificationActionRepository actionRepository;
     private final TemplateRenderingService templateRenderingService;
     private final AttachmentService attachmentService;
     private final PrRecordsExportService prRecordsExportService;
@@ -51,6 +49,7 @@ public class NotificationService {
     public NotificationService(NotificationRuleRepository ruleRepository,
                                NotificationJobRepository jobRepository,
                                NotificationTemplateRepository templateRepository,
+                               NotificationActionRepository actionRepository,
                                TemplateRenderingService templateRenderingService,
                                AttachmentService attachmentService,
                                PrRecordsExportService prRecordsExportService,
@@ -63,6 +62,7 @@ public class NotificationService {
         this.ruleRepository = ruleRepository;
         this.jobRepository = jobRepository;
         this.templateRepository = templateRepository;
+        this.actionRepository = actionRepository;
         this.templateRenderingService = templateRenderingService;
         this.attachmentService = attachmentService;
         this.prRecordsExportService = prRecordsExportService;
@@ -225,9 +225,11 @@ public class NotificationService {
      */
     @Transactional
     public CustomSendResult submitCustomNotification(Tenant tenant, SendCustomNotificationRequest request, String actor) {
-        if (!ALLOWED_CUSTOM_SCENARIOS.contains(request.scenario())) {
-            throw new IllegalArgumentException(
-                    "Unknown scenario: " + request.scenario() + " — must be one of " + ALLOWED_CUSTOM_SCENARIOS);
+        boolean actionUsable = actionRepository.findByCode(request.scenario())
+                .map(NotificationAction::isEnabled)
+                .orElse(false);
+        if (!actionUsable) {
+            throw new IllegalArgumentException("Unknown or disabled scenario: " + request.scenario());
         }
         if (!featureToggleService.isNotificationsEnabled(tenant.getTenantId())) {
             throw new FeatureDisabledException("Notifications disabled for tenant " + tenant.getTenantCode());
