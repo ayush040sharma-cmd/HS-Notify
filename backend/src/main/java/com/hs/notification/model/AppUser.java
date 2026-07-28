@@ -20,6 +20,9 @@ public class AppUser {
     @Column(name = "display_name")
     private String displayName;
 
+    @Column(name = "email")
+    private String email;
+
     @Column(name = "role", nullable = false)
     private String role = "VIEWER";
 
@@ -42,6 +45,9 @@ public class AppUser {
 
     public String getDisplayName() { return displayName; }
     public void setDisplayName(String displayName) { this.displayName = displayName; }
+
+    public String getEmail() { return email; }
+    public void setEmail(String email) { this.email = email; }
 
     public String getRole() { return role; }
     public void setRole(String role) { this.role = role; }

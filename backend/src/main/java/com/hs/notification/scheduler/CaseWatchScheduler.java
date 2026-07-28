@@ -139,6 +139,10 @@ public class CaseWatchScheduler {
         long lastSeenCaseId = checkpoint.getLastSeenCaseId();
         long highestSeen = lastSeenCaseId;
 
+        // TODO once real case_tbl access/schema is confirmed: if case_tbl has an
+        // assigned-analyst/owner column, add it here and set context.put("case_owner_email", ...)
+        // below — that's the key NotificationService.resolveCurrentUserRecipient reads
+        // as the fallback for CURRENT_USER rules on this no-acting-user (scheduler) path.
         String sql = "SELECT id, case_template_name, pipeline_names, grouped_entity_key, " +
                 "grouped_entity_value, severity, created_at FROM case_tbl WHERE id > ? ORDER BY id ASC";
 

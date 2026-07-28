@@ -10,6 +10,10 @@ public record UpsertRuleRequest(
         String recipientGroupCode,
         List<String> toEmails,
         List<String> ccEmails,
+        /** STATIC_GROUP (default) | CURRENT_USER — see NotificationService.resolveCurrentUserRecipient. */
+        String recipientMode,
+        /** Only meaningful when recipientMode=CURRENT_USER — used when no acting-user/case-owner identity resolves. */
+        String fallbackRecipientGroupCode,
         String escalationChainCode,
         Integer maxRetryCount,
         Integer retryBackoffSeconds,

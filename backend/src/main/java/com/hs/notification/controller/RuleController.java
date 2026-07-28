@@ -178,6 +178,19 @@ public class RuleController {
         RecipientGroup recipientGroup = resolveRecipientGroup(request, tenant);
         rule.setRecipientGroup(recipientGroup);
 
+        rule.setRecipientMode(request.recipientMode() != null && !request.recipientMode().isBlank()
+                ? request.recipientMode() : "STATIC_GROUP");
+
+        if (request.fallbackRecipientGroupCode() != null && !request.fallbackRecipientGroupCode().isBlank()) {
+            RecipientGroup fallback = recipientGroupRepository
+                    .findByTenant_TenantIdAndGroupCode(tenant.getTenantId(), request.fallbackRecipientGroupCode())
+                    .orElseThrow(() -> new IllegalArgumentException(
+                            "Fallback recipient group not found: " + request.fallbackRecipientGroupCode()));
+            rule.setFallbackRecipientGroup(fallback);
+        } else {
+            rule.setFallbackRecipientGroup(null);
+        }
+
         if (request.escalationChainCode() != null && !request.escalationChainCode().isBlank()) {
             EscalationChain chain = escalationChainRepository
                     .findByTenant_TenantIdAndChainCode(tenant.getTenantId(), request.escalationChainCode())
@@ -253,6 +266,11 @@ public class RuleController {
         }
 
         if (request.toEmails() == null || request.toEmails().isEmpty()) {
+            // CURRENT_USER rules resolve TO dynamically at send time — a static
+            // group/toEmails is optional (still usable to seed a CC list).
+            if ("CURRENT_USER".equals(request.recipientMode())) {
+                return null;
+            }
             throw new IllegalArgumentException("Provide either recipientGroupCode or toEmails");
         }
 

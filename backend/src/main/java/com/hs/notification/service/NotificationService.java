@@ -6,6 +6,7 @@ import com.hs.notification.exception.FeatureDisabledException;
 import com.hs.notification.exception.RateLimitExceededException;
 import com.hs.notification.exception.RuleNotActiveException;
 import com.hs.notification.model.*;
+import com.hs.notification.repository.AppUserRepository;
 import com.hs.notification.repository.NotificationActionRepository;
 import com.hs.notification.repository.NotificationJobRepository;
 import com.hs.notification.repository.NotificationRuleRepository;
@@ -37,6 +38,7 @@ public class NotificationService {
     private final NotificationJobRepository jobRepository;
     private final NotificationTemplateRepository templateRepository;
     private final NotificationActionRepository actionRepository;
+    private final AppUserRepository appUserRepository;
     private final TemplateRenderingService templateRenderingService;
     private final AttachmentService attachmentService;
     private final PrRecordsExportService prRecordsExportService;
@@ -51,6 +53,7 @@ public class NotificationService {
                                NotificationJobRepository jobRepository,
                                NotificationTemplateRepository templateRepository,
                                NotificationActionRepository actionRepository,
+                               AppUserRepository appUserRepository,
                                TemplateRenderingService templateRenderingService,
                                AttachmentService attachmentService,
                                PrRecordsExportService prRecordsExportService,
@@ -64,6 +67,7 @@ public class NotificationService {
         this.jobRepository = jobRepository;
         this.templateRepository = templateRepository;
         this.actionRepository = actionRepository;
+        this.appUserRepository = appUserRepository;
         this.templateRenderingService = templateRenderingService;
         this.attachmentService = attachmentService;
         this.prRecordsExportService = prRecordsExportService;
@@ -137,10 +141,9 @@ public class NotificationService {
         job.setMaxRetryCount(rule.getMaxRetryCount());
         job.setStatus("PENDING");
 
-        List<String> toAddresses = recipientOverride != null && !recipientOverride.isBlank()
-                ? List.of(recipientOverride)
-                : resolveRecipients(rule.getRecipientGroup(), "TO");
-        List<String> ccAddresses = resolveRecipients(rule.getRecipientGroup(), "CC");
+        List<String> toAddresses = resolveToAddresses(rule, recipientOverride, context);
+        RecipientGroup ccSource = rule.getRecipientGroup() != null ? rule.getRecipientGroup() : rule.getFallbackRecipientGroup();
+        List<String> ccAddresses = resolveRecipients(ccSource, "CC");
         job.setToAddresses(toAddresses);
         job.setCcAddresses(ccAddresses);
 
@@ -429,5 +432,61 @@ public class NotificationService {
                 .map(RecipientGroupMember::getEmailAddress)
                 .filter(addr -> addr != null && !addr.isBlank())
                 .collect(Collectors.toList());
+    }
+
+    /**
+     * recipientOverride (explicit, e.g. from notify()'s recipients.to[0]) always
+     * wins, matching the existing override semantics. Otherwise STATIC_GROUP
+     * rules behave exactly as before; CURRENT_USER rules resolve dynamically —
+     * see resolveCurrentUserRecipient.
+     */
+    private List<String> resolveToAddresses(NotificationRule rule, String recipientOverride, Map<String, Object> context) {
+        if (recipientOverride != null && !recipientOverride.isBlank()) {
+            return List.of(recipientOverride);
+        }
+        if ("CURRENT_USER".equals(rule.getRecipientMode())) {
+            return resolveCurrentUserRecipient(rule, context);
+        }
+        return resolveRecipients(rule.getRecipientGroup(), "TO");
+    }
+
+    /**
+     * Resolution order for a CURRENT_USER rule:
+     *  1. context.acting_user_email — caller already knows the acting user's email.
+     *  2. context.acting_username — looked up against app_user.email.
+     *  3. context.case_owner_email — for paths with no acting user (e.g. the
+     *     case-watch scheduler); populated by whatever polls case_tbl once a
+     *     real owner/assigned-analyst column is known there.
+     *  4. rule.fallbackRecipientGroup's TO members, if configured.
+     * Nothing resolvable is a hard failure, not a silent empty send.
+     */
+    private List<String> resolveCurrentUserRecipient(NotificationRule rule, Map<String, Object> context) {
+        Object actingEmail = context.get("acting_user_email");
+        if (actingEmail != null && !actingEmail.toString().isBlank()) {
+            return List.of(actingEmail.toString());
+        }
+
+        Object actingUsername = context.get("acting_username");
+        if (actingUsername != null && !actingUsername.toString().isBlank()) {
+            Optional<AppUser> user = appUserRepository.findByUsername(actingUsername.toString());
+            if (user.isPresent() && user.get().getEmail() != null && !user.get().getEmail().isBlank()) {
+                return List.of(user.get().getEmail());
+            }
+            log.warn("CURRENT_USER recipient: acting_username={} has no resolvable email, falling through", actingUsername);
+        }
+
+        Object caseOwnerEmail = context.get("case_owner_email");
+        if (caseOwnerEmail != null && !caseOwnerEmail.toString().isBlank()) {
+            return List.of(caseOwnerEmail.toString());
+        }
+
+        if (rule.getFallbackRecipientGroup() != null) {
+            List<String> fallback = resolveRecipients(rule.getFallbackRecipientGroup(), "TO");
+            if (!fallback.isEmpty()) return fallback;
+        }
+
+        throw new IllegalArgumentException("CURRENT_USER recipient could not be resolved for rule " +
+                rule.getRuleCode() + " — no acting_user_email/acting_username/case_owner_email in context " +
+                "and no fallback_recipient_group configured");
     }
 }

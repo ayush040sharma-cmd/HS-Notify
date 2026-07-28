@@ -38,6 +38,15 @@ public class NotificationRule {
     @JoinColumn(name = "recipient_group_id")
     private RecipientGroup recipientGroup;
 
+    /** STATIC_GROUP (default, existing behavior) | CURRENT_USER (resolve TO dynamically at send time). */
+    @Column(name = "recipient_mode", nullable = false)
+    private String recipientMode = "STATIC_GROUP";
+
+    /** Only consulted when recipientMode=CURRENT_USER and no acting-user/case-owner identity resolves. */
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "fallback_recipient_group_id")
+    private RecipientGroup fallbackRecipientGroup;
+
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "attachment_rule_id")
     private AttachmentRule attachmentRule;
@@ -102,6 +111,12 @@ public class NotificationRule {
 
     public RecipientGroup getRecipientGroup() { return recipientGroup; }
     public void setRecipientGroup(RecipientGroup recipientGroup) { this.recipientGroup = recipientGroup; }
+
+    public String getRecipientMode() { return recipientMode; }
+    public void setRecipientMode(String recipientMode) { this.recipientMode = recipientMode; }
+
+    public RecipientGroup getFallbackRecipientGroup() { return fallbackRecipientGroup; }
+    public void setFallbackRecipientGroup(RecipientGroup fallbackRecipientGroup) { this.fallbackRecipientGroup = fallbackRecipientGroup; }
 
     public AttachmentRule getAttachmentRule() { return attachmentRule; }
     public void setAttachmentRule(AttachmentRule attachmentRule) { this.attachmentRule = attachmentRule; }

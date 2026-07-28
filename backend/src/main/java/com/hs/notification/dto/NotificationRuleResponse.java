@@ -11,6 +11,8 @@ public record NotificationRuleResponse(
         String triggerSource,
         TemplateRef template,
         String recipientGroupCode,
+        String recipientMode,
+        String fallbackRecipientGroupCode,
         String escalationChainCode,
         Integer maxRetryCount,
         Integer retryBackoffSeconds,
@@ -34,6 +36,7 @@ public record NotificationRuleResponse(
                 ? new TemplateRef(rule.getTemplate().getTemplateCode(), rule.getTemplate().getChannel())
                 : null;
         String recipientGroupCode = rule.getRecipientGroup() != null ? rule.getRecipientGroup().getGroupCode() : null;
+        String fallbackRecipientGroupCode = rule.getFallbackRecipientGroup() != null ? rule.getFallbackRecipientGroup().getGroupCode() : null;
         String escalationChainCode = rule.getEscalationChain() != null ? rule.getEscalationChain().getChainCode() : null;
 
         String attachmentType = "NONE";
@@ -60,6 +63,8 @@ public record NotificationRuleResponse(
                 rule.getTriggerSource(),
                 template,
                 recipientGroupCode,
+                rule.getRecipientMode(),
+                fallbackRecipientGroupCode,
                 escalationChainCode,
                 rule.getMaxRetryCount(),
                 rule.getRetryBackoffSeconds(),
