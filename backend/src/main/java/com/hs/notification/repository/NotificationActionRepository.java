@@ -13,4 +13,6 @@ public interface NotificationActionRepository extends JpaRepository<Notification
     Optional<NotificationAction> findByCode(String code);
 
     boolean existsByCode(String code);
+
+    boolean existsByFormSchemaId(Long formSchemaId);
 }

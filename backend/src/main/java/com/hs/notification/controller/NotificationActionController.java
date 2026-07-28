@@ -1,9 +1,13 @@
 package com.hs.notification.controller;
 
+import com.hs.notification.dto.ActionSchemaResponse;
+import com.hs.notification.dto.FormSchemaResponse;
 import com.hs.notification.dto.NotificationActionResponse;
 import com.hs.notification.dto.UpsertNotificationActionRequest;
+import com.hs.notification.model.FormSchema;
 import com.hs.notification.model.NotificationAction;
 import com.hs.notification.model.Tenant;
+import com.hs.notification.repository.FormSchemaRepository;
 import com.hs.notification.repository.NotificationActionRepository;
 import com.hs.notification.service.AuditService;
 import jakarta.servlet.http.HttpServletRequest;
@@ -14,6 +18,7 @@ import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 
 /**
  * CRUD for the Notification Action Registry — the database-driven
@@ -28,10 +33,14 @@ import java.util.Map;
 public class NotificationActionController {
 
     private final NotificationActionRepository actionRepository;
+    private final FormSchemaRepository formSchemaRepository;
     private final AuditService auditService;
 
-    public NotificationActionController(NotificationActionRepository actionRepository, AuditService auditService) {
+    public NotificationActionController(NotificationActionRepository actionRepository,
+                                         FormSchemaRepository formSchemaRepository,
+                                         AuditService auditService) {
         this.actionRepository = actionRepository;
+        this.formSchemaRepository = formSchemaRepository;
         this.auditService = auditService;
     }
 
@@ -47,6 +56,28 @@ public class NotificationActionController {
     public ResponseEntity<NotificationActionResponse> get(@PathVariable Long id) {
         NotificationAction action = requireAction(id);
         return ResponseEntity.ok(NotificationActionResponse.from(action));
+    }
+
+    /**
+     * The read path the notification wizard actually calls: given an action
+     * code, return its dynamic form definition. schema is null (200, not an
+     * error) when the action has no form_schema_id linked — lets the
+     * frontend fall back to a generic form for actions that predate the
+     * Form Metadata Engine, like the 5 legacy scenarios other than
+     * FRAUD_ALERT.
+     */
+    @GetMapping("/{code}/schema")
+    @Transactional(readOnly = true)
+    public ResponseEntity<ActionSchemaResponse> schemaForAction(@PathVariable String code) {
+        NotificationAction action = actionRepository.findByCode(code)
+                .orElseThrow(() -> new IllegalArgumentException("Notification action not found: " + code));
+
+        FormSchemaResponse schema = Optional.ofNullable(action.getFormSchemaId())
+                .flatMap(formSchemaRepository::findById)
+                .map(FormSchemaResponse::from)
+                .orElse(null);
+
+        return ResponseEntity.ok(new ActionSchemaResponse(action.getCode(), schema));
     }
 
     @PostMapping
