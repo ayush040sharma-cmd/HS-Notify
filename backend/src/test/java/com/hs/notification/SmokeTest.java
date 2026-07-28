@@ -43,16 +43,16 @@ class SmokeTest {
     }
 
     @Test
-    void zainTenantExistsAndIsActive() {
-        Tenant zain = tenantRepository.findByTenantCode("ZAIN").orElseThrow(
-                () -> new AssertionError("ZAIN tenant not seeded"));
-        assertThat(zain.isActive()).isTrue();
+    void subexTenantExistsAndIsActive() {
+        Tenant subex = tenantRepository.findByTenantCode("SUBEX").orElseThrow(
+                () -> new AssertionError("SUBEX tenant not seeded"));
+        assertThat(subex.isActive()).isTrue();
     }
 
     @Test
     void prCloseRuleIsActiveAndActive() {
-        Tenant zain = tenantRepository.findByTenantCode("ZAIN").orElseThrow();
-        List<NotificationRule> rules = ruleRepository.findByTenant_TenantId(zain.getTenantId());
+        Tenant subex = tenantRepository.findByTenantCode("SUBEX").orElseThrow();
+        List<NotificationRule> rules = ruleRepository.findByTenant_TenantId(subex.getTenantId());
 
         NotificationRule prClose = rules.stream()
                 .filter(r -> "PR_CLOSE_RULE".equals(r.getRuleCode()))
@@ -65,8 +65,8 @@ class SmokeTest {
 
     @Test
     void caseEscalateRuleIsPendingReview() {
-        Tenant zain = tenantRepository.findByTenantCode("ZAIN").orElseThrow();
-        List<NotificationRule> rules = ruleRepository.findByTenant_TenantId(zain.getTenantId());
+        Tenant subex = tenantRepository.findByTenantCode("SUBEX").orElseThrow();
+        List<NotificationRule> rules = ruleRepository.findByTenant_TenantId(subex.getTenantId());
 
         NotificationRule caseEscalate = rules.stream()
                 .filter(r -> "CASE_ESCALATE_RULE".equals(r.getRuleCode()))

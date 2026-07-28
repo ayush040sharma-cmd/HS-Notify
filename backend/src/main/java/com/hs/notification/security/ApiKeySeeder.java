@@ -29,7 +29,7 @@ public class ApiKeySeeder {
 
     public ApiKeySeeder(ApiKeyRepository apiKeyRepository,
                         TenantRepository tenantRepository,
-                        @Value("${hs-notification.security.api-keys:ZAIN:dev-local-key-change-me}") String legacyApiKeys) {
+                        @Value("${hs-notification.security.api-keys:SUBEX:dev-local-key-change-me}") String legacyApiKeys) {
         this.apiKeyRepository = apiKeyRepository;
         this.tenantRepository = tenantRepository;
         this.legacyApiKeys = legacyApiKeys;

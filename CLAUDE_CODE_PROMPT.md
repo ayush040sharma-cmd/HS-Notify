@@ -37,7 +37,7 @@ but don't ask permission for implementation details within a milestone.
 - Run `mvn test`. There are currently no tests — write at least:
   - A `@SpringBootTest` using Testcontainers Postgres that boots the full
     context, runs Flyway migrations, and asserts the seed data loaded
-    (the ZAIN tenant, PR_CLOSE_RULE active, CASE_ESCALATE_RULE pending).
+    (the SUBEX tenant, PR_CLOSE_RULE active, CASE_ESCALATE_RULE pending).
   - A unit test for `TemplateRenderingService` covering: variable
     whitelist enforcement (unlisted variables render empty, not echoed),
     PII masking, and HTML escaping of interpolated values.

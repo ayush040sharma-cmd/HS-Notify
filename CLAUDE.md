@@ -60,7 +60,7 @@ npm run build
 
 ## Auth
 
-All API calls require the `X-HS-API-Key` header. The seeded dev key is `dev-local-key-change-me` for tenant `ZAIN`. This is configured in two places that must stay in sync:
+All API calls require the `X-HS-API-Key` header. The seeded dev key is `dev-local-key-change-me` for tenant `SUBEX`. This is configured in two places that must stay in sync:
 - `backend/src/main/resources/application.yml` → `hs-notification.security.api-key-header`
 - `frontend/src/api/client.js` → reads `VITE_API_KEY` env var, falls back to the hardcoded dev key
 

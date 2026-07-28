@@ -97,7 +97,7 @@ hs-notification:
     api-key-header: X-HS-API-Key
     # Bootstrap dev key seeded into api_key table on first run.
     # Operators issue production keys via POST /api/v1/admin/api-keys.
-    api-keys: ${HS_API_KEYS:ZAIN:dev-local-key-change-me}
+    api-keys: ${HS_API_KEYS:SUBEX:dev-local-key-change-me}
     # Separate credential protecting /api/v1/admin endpoints.
     # Must be changed before any production deployment.
     admin-token: ${HS_ADMIN_TOKEN:changeme-admin-token}

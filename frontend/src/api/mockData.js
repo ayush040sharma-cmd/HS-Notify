@@ -194,7 +194,7 @@ export const MOCK = {
     { logId: 5, ts: m(30),  level: 'INFO',  component: 'WatchdogScheduler',  message: 'Health check passed. responseTimeMs=18' },
     { logId: 6, ts: m(45),  level: 'INFO',  component: 'EmailChannelSender', message: 'MimeMessage sent. jobId=4 to=analyst@zain.example.com' },
     { logId: 7, ts: m(60),  level: 'INFO',  component: 'WatchdogScheduler',  message: 'Health check passed. responseTimeMs=38' },
-    { logId: 8, ts: h(2),   level: 'INFO',  component: 'NotificationService', message: 'Job #1 submitted. ruleCode=PR_CLOSE_RULE tenantId=ZAIN' },
+    { logId: 8, ts: h(2),   level: 'INFO',  component: 'NotificationService', message: 'Job #1 submitted. ruleCode=PR_CLOSE_RULE tenantId=SUBEX' },
     { logId: 9, ts: h(5),   level: 'ERROR', component: 'EmailChannelSender', message: 'SMTP connection refused: smtp.zain-internal.example.com:587' },
     { logId: 10, ts: h(6),  level: 'ERROR', component: 'WatchdogScheduler',  message: 'Consecutive failures=3 exceeds threshold. Sending escalation.' },
     { logId: 11, ts: h(6),  level: 'INFO',  component: 'EscalationService',  message: 'Escalation email sent to fraud-ops-lead@zain.example.com' },
@@ -275,8 +275,8 @@ export const MOCK = {
   },
 
   apiKeys: [
-    { keyId: 1, prefix: 'dev-', label: 'Dev Local', tenantCode: 'ZAIN', status: 'ACTIVE', createdAt: h(720), lastUsedAt: h(0) },
-    { keyId: 2, prefix: 'stg-', label: 'Staging CI', tenantCode: 'ZAIN', status: 'ACTIVE', createdAt: h(360), lastUsedAt: h(2) },
+    { keyId: 1, prefix: 'dev-', label: 'Dev Local', tenantCode: 'SUBEX', status: 'ACTIVE', createdAt: h(720), lastUsedAt: h(0) },
+    { keyId: 2, prefix: 'stg-', label: 'Staging CI', tenantCode: 'SUBEX', status: 'ACTIVE', createdAt: h(360), lastUsedAt: h(2) },
   ],
 };
 

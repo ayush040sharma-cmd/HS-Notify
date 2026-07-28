@@ -39,7 +39,7 @@ class AttachmentServiceTest {
 
         Tenant tenant = new Tenant();
         tenant.setTenantId(1L);
-        tenant.setTenantCode("ZAIN");
+        tenant.setTenantCode("SUBEX");
         tenant.setActive(true);
 
         job = new NotificationJob();

@@ -171,7 +171,7 @@ npm run dev
 ## Default dev credentials
 
 - **API key** (for direct API calls, e.g. `POST /api/v1/notifications/send-by-rule`):
-  `X-HS-API-Key: dev-local-key-change-me`, mapped to tenant `ZAIN`. On first
+  `X-HS-API-Key: dev-local-key-change-me`, mapped to tenant `SUBEX`. On first
   boot this is auto-seeded into the DB-backed `api_key` table (hashed) — from
   then on, keys are managed from **Users & Keys** in the UI, not config.
 - **Admin login** (for the operator dashboard): `admin` / `admin123` — dev

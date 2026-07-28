@@ -18,4 +18,4 @@ hs-notification:
   watchdog:
     poll-interval-ms: 3600000
   security:
-    api-keys: "ZAIN:test-api-key"
+    api-keys: "SUBEX:test-api-key"

@@ -28,7 +28,7 @@ class ApiKeyResolverTest {
     void setUp() {
         zain = new Tenant();
         zain.setTenantId(1L);
-        zain.setTenantCode("ZAIN");
+        zain.setTenantCode("SUBEX");
         zain.setActive(true);
 
         activeKey = new ApiKey();
@@ -42,7 +42,7 @@ class ApiKeyResolverTest {
     @Test
     void validKeyResolvesToTenantCode() {
         ApiKeyResolver resolver = resolverReturning(List.of(activeKey));
-        assertThat(resolver.resolveTenantCode(RAW_KEY)).contains("ZAIN");
+        assertThat(resolver.resolveTenantCode(RAW_KEY)).contains("SUBEX");
     }
 
     @Test
@@ -74,7 +74,7 @@ class ApiKeyResolverTest {
     void futureExpiryIsAccepted() {
         activeKey.setExpiresAt(OffsetDateTime.now().plusDays(30));
         ApiKeyResolver resolver = resolverReturning(List.of(activeKey));
-        assertThat(resolver.resolveTenantCode(RAW_KEY)).contains("ZAIN");
+        assertThat(resolver.resolveTenantCode(RAW_KEY)).contains("SUBEX");
     }
 
     @Test
