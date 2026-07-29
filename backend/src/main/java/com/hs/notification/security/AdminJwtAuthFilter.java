@@ -60,14 +60,14 @@ public class AdminJwtAuthFilter extends OncePerRequestFilter {
         String header = request.getHeader("Authorization");
         String token = (header != null && header.startsWith("Bearer ")) ? header.substring(7) : null;
 
-        Optional<String> subject = token != null ? jwtService.validateAndGetSubject(token) : Optional.empty();
-        if (subject.isEmpty()) {
+        Optional<AdminJwtService.SessionClaims> claims = token != null ? jwtService.validateAndGetClaims(token) : Optional.empty();
+        if (claims.isEmpty()) {
             response.sendError(HttpServletResponse.SC_UNAUTHORIZED, "Missing or invalid admin session token");
             return;
         }
 
         UsernamePasswordAuthenticationToken authToken = new UsernamePasswordAuthenticationToken(
-                subject.get(), null, List.of(new SimpleGrantedAuthority("ROLE_ADMIN")));
+                claims.get().username(), null, List.of(new SimpleGrantedAuthority("ROLE_" + claims.get().role())));
         SecurityContextHolder.getContext().setAuthentication(authToken);
 
         filterChain.doFilter(request, response);

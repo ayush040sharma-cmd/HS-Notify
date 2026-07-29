@@ -249,11 +249,11 @@ export const MOCK = {
   },
 
   users: [
-    { userId: 1, name: 'System Seed', email: 'system@hs-notify.internal', role: 'ADMIN', status: 'ACTIVE', lastLogin: h(0) },
-    { userId: 2, name: 'John Doe', email: 'analyst.jdoe@zain.example.com', role: 'OPERATOR', status: 'ACTIVE', lastLogin: h(3) },
-    { userId: 3, name: 'Ops Lead', email: 'ops.lead@zain.example.com', role: 'APPROVER', status: 'ACTIVE', lastLogin: h(12) },
-    { userId: 4, name: 'Ops Admin', email: 'ops.admin@zain.example.com', role: 'ADMIN', status: 'ACTIVE', lastLogin: h(6) },
-    { userId: 5, name: 'Viewer User', email: 'viewer@zain.example.com', role: 'VIEWER', status: 'INACTIVE', lastLogin: h(72) },
+    { userId: 1, username: 'admin', name: 'Platform Administrator', email: 'admin@hs-notify.internal', role: 'ADMIN', status: 'ACTIVE', lastLogin: h(0) },
+    { userId: 2, username: 'jdoe', name: 'John Doe', email: 'analyst.jdoe@subex.example.com', role: 'ANALYST', status: 'ACTIVE', lastLogin: h(3) },
+    { userId: 3, username: 'ops.lead', name: 'Ops Lead', email: 'ops.lead@subex.example.com', role: 'MANAGER', status: 'ACTIVE', lastLogin: h(12) },
+    { userId: 4, username: 'rafm.head', name: 'RAFM Head', email: 'rafm.head@subex.example.com', role: 'RAFM_HEAD', status: 'ACTIVE', lastLogin: h(6) },
+    { userId: 5, username: 'viewer1', name: 'Viewer User', email: 'viewer@subex.example.com', role: 'VIEWER', status: 'INACTIVE', lastLogin: h(72) },
   ],
 
   serviceHealth: [
@@ -336,6 +336,16 @@ export const mockApi = {
   smtpConfig:          () => delay().then(() => ({ ...MOCK.smtpConfig })),
   whatsappConfig:      () => delay().then(() => ({ ...MOCK.whatsappConfig })),
   users:               () => delay().then(() => [...MOCK.users]),
+  createUser: (payload) => delay().then(() => {
+    const u = { userId: MOCK.users.length + 1, status: payload.active === false ? 'INACTIVE' : 'ACTIVE', ...payload, name: payload.displayName || payload.username };
+    MOCK.users.push(u);
+    return u;
+  }),
+  updateUser: (id, payload) => delay().then(() => {
+    const idx = MOCK.users.findIndex(u => u.userId === id);
+    if (idx >= 0) MOCK.users[idx] = { ...MOCK.users[idx], ...payload, name: payload.displayName || MOCK.users[idx].name, status: payload.active === false ? 'INACTIVE' : 'ACTIVE' };
+    return MOCK.users[idx];
+  }),
   escalationConfig:    () => delay().then(() => ({ ...MOCK.escalationConfig })),
   apiKeys:             () => delay().then(() => [...MOCK.apiKeys]),
 

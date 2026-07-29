@@ -25,13 +25,15 @@ public class AdminAuthController {
 
     @PostMapping("/login")
     public ResponseEntity<Map<String, Object>> login(@RequestBody LoginRequest request) {
-        Optional<String> token = adminAuthService.login(request.username(), request.password());
-        if (token.isEmpty()) {
+        Optional<AdminAuthService.LoginResult> result = adminAuthService.login(request.username(), request.password());
+        if (result.isEmpty()) {
             return ResponseEntity.status(401).body(Map.of("error", "Invalid username or password"));
         }
         return ResponseEntity.ok(Map.of(
-                "token", token.get(),
+                "token", result.get().token(),
                 "username", request.username(),
+                "displayName", result.get().displayName(),
+                "role", result.get().role(),
                 "expiresInMinutes", adminAuthService.getTtlMinutes()
         ));
     }

@@ -300,6 +300,8 @@ a { text-decoration: none; color: inherit; }
 .badge-approver { background: var(--amber-dim); color: var(--amber); }
 .badge-operator { background: var(--blue-dim); color: var(--blue); }
 .badge-viewer { background: rgba(82,93,110,0.2); color: var(--text-secondary); }
+.badge-rafm_head, .badge-manager { background: var(--amber-dim); color: var(--amber); }
+.badge-analyst { background: var(--blue-dim); color: var(--blue); }
 
 /* ─── Status Dot ─────────────────────────────────────────────── */
 .dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
