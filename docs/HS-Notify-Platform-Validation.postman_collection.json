@@ -1,0 +1,192 @@
+{
+  "info": {
+    "name": "HS Notify — Platform Validation (Phases 1-4)",
+    "_postman_id": "hs-notify-platform-validation",
+    "description": "Validates the metadata-driven platform work: Notification Action Registry (Phase 1), Form Metadata Engine (Phase 2), unified /notify engine (Phase 3), and the Attachment Provider Pattern (Phase 4). Run \"00 Auth > Login\" first — it saves the admin JWT into {{jwtToken}}, which every other request picks up automatically via the collection-level pre-request script (along with X-HS-API-Key). For the day-to-day BMS/PAS integration endpoints (send-by-rule/send-direct), see HS-Notify-API.postman_collection.json instead — this collection is for validating the platform build itself.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    { "key": "baseUrl", "value": "http://localhost:8089" },
+    { "key": "apiKey", "value": "dev-local-key-change-me" },
+    { "key": "adminUsername", "value": "admin" },
+    { "key": "adminPassword", "value": "admin123" },
+    { "key": "jwtToken", "value": "" }
+  ],
+  "event": [
+    {
+      "listen": "prerequest",
+      "script": {
+        "type": "text/javascript",
+        "exec": [
+          "pm.request.headers.upsert({ key: 'X-HS-API-Key', value: pm.collectionVariables.get('apiKey') });",
+          "const token = pm.collectionVariables.get('jwtToken');",
+          "if (token) { pm.request.headers.upsert({ key: 'Authorization', value: 'Bearer ' + token }); }"
+        ]
+      }
+    }
+  ],
+  "item": [
+    {
+      "name": "00 Auth",
+      "item": [
+        {
+          "name": "Login",
+          "request": {
+            "method": "POST",
+            "header": [ { "key": "Content-Type", "value": "application/json" } ],
+            "url": { "raw": "{{baseUrl}}/api/v1/auth/login", "host": ["{{baseUrl}}"], "path": ["api","v1","auth","login"] },
+            "body": { "mode": "raw", "raw": "{\n  \"username\": \"{{adminUsername}}\",\n  \"password\": \"{{adminPassword}}\"\n}" }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const data = pm.response.json();",
+                  "pm.collectionVariables.set('jwtToken', data.token);",
+                  "pm.test('login succeeded, token saved', () => pm.expect(data.token).to.be.a('string'));"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "01 Notification Actions (Phase 1)",
+      "item": [
+        {
+          "name": "List Actions",
+          "request": { "method": "GET", "url": { "raw": "{{baseUrl}}/api/v1/actions", "host": ["{{baseUrl}}"], "path": ["api","v1","actions"] } },
+          "event": [ { "listen": "test", "script": { "type": "text/javascript", "exec": [
+            "pm.test('returns the seeded actions', () => {",
+            "  const codes = pm.response.json().map(a => a.code);",
+            "  pm.expect(codes).to.include.members(['FRAUD_ALERT','ZERO_TOLERANCE','VENDOR_EMAIL','CASE_SUMMARY','PR_CLOSE','DIRECT_SEND']);",
+            "});"
+          ] } } ]
+        },
+        {
+          "name": "Get FRAUD_ALERT's Form Schema",
+          "request": { "method": "GET", "url": { "raw": "{{baseUrl}}/api/v1/actions/FRAUD_ALERT/schema", "host": ["{{baseUrl}}"], "path": ["api","v1","actions","FRAUD_ALERT","schema"] } },
+          "event": [ { "listen": "test", "script": { "type": "text/javascript", "exec": [
+            "pm.test('schema has 10 fields', () => pm.expect(pm.response.json().schema.fields).to.have.lengthOf(10));"
+          ] } } ]
+        },
+        {
+          "name": "Create + Disable + Delete a Test Action",
+          "request": {
+            "method": "POST",
+            "header": [ { "key": "Content-Type", "value": "application/json" } ],
+            "url": { "raw": "{{baseUrl}}/api/v1/actions", "host": ["{{baseUrl}}"], "path": ["api","v1","actions"] },
+            "body": { "mode": "raw", "raw": "{\n  \"code\": \"POSTMAN_VALIDATION_ACTION\",\n  \"displayName\": \"Postman Validation Action\",\n  \"enabled\": true,\n  \"defaultChannel\": \"EMAIL\"\n}" }
+          },
+          "event": [
+            { "listen": "test", "script": { "type": "text/javascript", "exec": [ "pm.collectionVariables.set('testActionId', pm.response.json().id);" ] } }
+          ]
+        },
+        {
+          "name": "  -> Delete Test Action",
+          "request": { "method": "DELETE", "url": { "raw": "{{baseUrl}}/api/v1/actions/{{testActionId}}", "host": ["{{baseUrl}}"], "path": ["api","v1","actions","{{testActionId}}"] } },
+          "event": [ { "listen": "test", "script": { "type": "text/javascript", "exec": [ "pm.test('deleted', () => pm.response.to.have.status(204));" ] } } ]
+        }
+      ]
+    },
+    {
+      "name": "02 Form Schemas (Phase 2)",
+      "item": [
+        {
+          "name": "List Form Schemas",
+          "request": { "method": "GET", "url": { "raw": "{{baseUrl}}/api/v1/form-schemas", "host": ["{{baseUrl}}"], "path": ["api","v1","form-schemas"] } }
+        },
+        {
+          "name": "Create Schema with Nested Field + Options",
+          "request": {
+            "method": "POST",
+            "header": [ { "key": "Content-Type", "value": "application/json" } ],
+            "url": { "raw": "{{baseUrl}}/api/v1/form-schemas", "host": ["{{baseUrl}}"], "path": ["api","v1","form-schemas"] },
+            "body": { "mode": "raw", "raw": "{\n  \"name\": \"Postman Validation Schema\",\n  \"fields\": [\n    { \"fieldKey\": \"priority\", \"label\": \"Priority\", \"fieldType\": \"DROPDOWN\", \"displayOrder\": 1,\n      \"options\": [ { \"optionValue\": \"LOW\", \"optionLabel\": \"Low\" }, { \"optionValue\": \"HIGH\", \"optionLabel\": \"High\" } ] }\n  ]\n}" }
+          },
+          "event": [ { "listen": "test", "script": { "type": "text/javascript", "exec": [ "pm.collectionVariables.set('testSchemaId', pm.response.json().id);" ] } } ]
+        },
+        {
+          "name": "  -> Delete Test Schema",
+          "request": { "method": "DELETE", "url": { "raw": "{{baseUrl}}/api/v1/form-schemas/{{testSchemaId}}", "host": ["{{baseUrl}}"], "path": ["api","v1","form-schemas","{{testSchemaId}}"] } }
+        }
+      ]
+    },
+    {
+      "name": "03 Unified Notify (Phase 3)",
+      "item": [
+        {
+          "name": "Notify: ad-hoc action (CASE_SUMMARY)",
+          "request": {
+            "method": "POST",
+            "header": [ { "key": "Content-Type", "value": "application/json" } ],
+            "url": { "raw": "{{baseUrl}}/api/v1/notify", "host": ["{{baseUrl}}"], "path": ["api","v1","notify"] },
+            "body": { "mode": "raw", "raw": "{\n  \"action\": \"CASE_SUMMARY\",\n  \"recipients\": { \"to\": [\"test@example.com\"], \"cc\": [], \"bcc\": [] },\n  \"subject\": \"Postman validation - ad hoc\",\n  \"comment\": \"sent via /api/v1/notify\"\n}" }
+          },
+          "description": "Uses @example.com — the real Subex relay rejects it (RFC 2606), so this exercises the full pipeline without landing in a real inbox."
+        },
+        {
+          "name": "Notify: rule-based routing (PR_CLOSE_RULE)",
+          "request": {
+            "method": "POST",
+            "header": [ { "key": "Content-Type", "value": "application/json" } ],
+            "url": { "raw": "{{baseUrl}}/api/v1/notify", "host": ["{{baseUrl}}"], "path": ["api","v1","notify"] },
+            "body": { "mode": "raw", "raw": "{\n  \"action\": \"PR_CLOSE_RULE\",\n  \"recipients\": { \"to\": [\"test@example.com\"] },\n  \"payload\": { \"case_id\": \"999\", \"case_template_name\": \"Postman Test\", \"detection_time\": \"2026-07-29T10:00:00Z\", \"record_count\": \"1\" }\n}" }
+          },
+          "event": [ { "listen": "test", "script": { "type": "text/javascript", "exec": [
+            "pm.test('routed through the rule, not the ad-hoc path', () => pm.expect(pm.response.json().job.ruleCode).to.eql('PR_CLOSE_RULE'));"
+          ] } } ]
+        },
+        {
+          "name": "Notify: unknown action -> 400",
+          "request": {
+            "method": "POST",
+            "header": [ { "key": "Content-Type", "value": "application/json" } ],
+            "url": { "raw": "{{baseUrl}}/api/v1/notify", "host": ["{{baseUrl}}"], "path": ["api","v1","notify"] },
+            "body": { "mode": "raw", "raw": "{\n  \"action\": \"NOT_A_RULE_OR_ACTION\",\n  \"recipients\": { \"to\": [\"test@example.com\"] },\n  \"subject\": \"x\"\n}" }
+          },
+          "event": [ { "listen": "test", "script": { "type": "text/javascript", "exec": [ "pm.test('400', () => pm.response.to.have.status(400));" ] } } ]
+        }
+      ]
+    },
+    {
+      "name": "04 Attachment Providers (Phase 4)",
+      "item": [
+        {
+          "name": "List Attachment Providers",
+          "request": { "method": "GET", "url": { "raw": "{{baseUrl}}/api/v1/attachments/providers", "host": ["{{baseUrl}}"], "path": ["api","v1","attachments","providers"] } },
+          "event": [ { "listen": "test", "script": { "type": "text/javascript", "exec": [
+            "pm.test('all 7 providers registered', () => pm.expect(pm.response.json()).to.have.lengthOf(7));"
+          ] } } ]
+        },
+        {
+          "name": "List Attachment Schemas",
+          "request": { "method": "GET", "url": { "raw": "{{baseUrl}}/api/v1/attachment-schemas", "host": ["{{baseUrl}}"], "path": ["api","v1","attachment-schemas"] } }
+        },
+        {
+          "name": "Create Attachment Schema: unknown provider key -> 400",
+          "request": {
+            "method": "POST",
+            "header": [ { "key": "Content-Type", "value": "application/json" } ],
+            "url": { "raw": "{{baseUrl}}/api/v1/attachment-schemas", "host": ["{{baseUrl}}"], "path": ["api","v1","attachment-schemas"] },
+            "body": { "mode": "raw", "raw": "{\n  \"name\": \"Bad Bundle\",\n  \"providerKeys\": [\"NOT_A_REAL_PROVIDER\"]\n}" }
+          },
+          "event": [ { "listen": "test", "script": { "type": "text/javascript", "exec": [ "pm.test('400', () => pm.response.to.have.status(400));" ] } } ]
+        },
+        {
+          "name": "Notify with multi-provider (PR_RECORDS + EXCEL_EXPORT) -> ZIP",
+          "request": {
+            "method": "POST",
+            "header": [ { "key": "Content-Type", "value": "application/json" } ],
+            "url": { "raw": "{{baseUrl}}/api/v1/notify", "host": ["{{baseUrl}}"], "path": ["api","v1","notify"] },
+            "body": { "mode": "raw", "raw": "{\n  \"action\": \"CASE_SUMMARY\",\n  \"recipients\": { \"to\": [\"test@example.com\"] },\n  \"subject\": \"Postman multi-provider test\",\n  \"payload\": { \"case_id\": \"REPLACE_WITH_REAL_CASE_ID\", \"catalog_id\": \"REPLACE_WITH_REAL_CATALOG_ID\", \"case_template_name\": \"PostmanTest\" },\n  \"attachmentOptions\": { \"providers\": [\"PR_RECORDS\", \"EXCEL_EXPORT\"] }\n}" }
+          },
+          "description": "Requires hs-notification.usage-datasource to be configured (see .env) and a real case_id/catalog_id pair with rows in system_pr_results_<catalog_id> — replace the placeholders. With two providers succeeding, the job's attachmentPath will be a .zip containing both files."
+        }
+      ]
+    }
+  ]
+}
