@@ -53,7 +53,11 @@ public class SecurityConfig {
                 // Unauthenticated read-only lookups for HyperSense's PAS analyst action
                 // screen to populate a dropdown. No tenant/API-key context is available
                 // here — see ApiKeyAuthFilter/AdminJwtAuthFilter for the matching skip.
-                .requestMatchers(HttpMethod.GET, "/api/v1/templates/active", "/api/v1/rules/active").permitAll()
+                // /api/v1/actions (+ /{code}/schema) are the action-picker + dynamic
+                // form/checkbox discovery calls for the unified /api/v1/notify flow —
+                // same machine-caller need as templates/active and rules/active.
+                .requestMatchers(HttpMethod.GET, "/api/v1/templates/active", "/api/v1/rules/active",
+                        "/api/v1/actions", "/api/v1/actions/*/schema").permitAll()
 
                 // --- Phase 5 RBAC: tiered mutation gates on top of "any logged-in
                 // role can view everything" (the final .anyRequest().authenticated()

@@ -52,7 +52,8 @@ public class ApiKeyAuthFilter extends OncePerRequestFilter {
 
         // Unauthenticated PAS dropdown lookups — see SecurityConfig for the matching permitAll.
         if ("GET".equals(request.getMethod())
-                && ("/api/v1/templates/active".equals(path) || "/api/v1/rules/active".equals(path))) {
+                && ("/api/v1/templates/active".equals(path) || "/api/v1/rules/active".equals(path)
+                    || "/api/v1/actions".equals(path) || path.matches("/api/v1/actions/[^/]+/schema"))) {
             filterChain.doFilter(request, response);
             return;
         }
