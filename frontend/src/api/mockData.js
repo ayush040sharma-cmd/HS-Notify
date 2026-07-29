@@ -292,9 +292,23 @@ export const MOCK = {
   ],
 
   actions: [
-    { id: 1, code: 'FRAUD_ALERT', displayName: 'Fraud Alert', description: 'Alert sent when suspicious subscriber activity is detected', enabled: true, approvalRequired: false, defaultChannel: 'EMAIL', displayOrder: 10, formSchemaId: 1, createdBy: 'system-migration' },
-    { id: 2, code: 'ZERO_TOLERANCE', displayName: 'Zero Tolerance Alert', description: 'High-severity alert for zero-tolerance fraud policy violations', enabled: true, approvalRequired: false, defaultChannel: 'EMAIL', displayOrder: 20, formSchemaId: null, createdBy: 'system-migration' },
-    { id: 3, code: 'VENDOR_EMAIL', displayName: 'Vendor Notification', description: 'Notification sent to an external vendor or partner', enabled: true, approvalRequired: false, defaultChannel: 'EMAIL', displayOrder: 30, formSchemaId: null, createdBy: 'system-migration' },
+    { id: 1, code: 'FRAUD_ALERT', displayName: 'Fraud Alert', description: 'Alert sent when suspicious subscriber activity is detected', enabled: true, approvalRequired: false, defaultChannel: 'EMAIL', displayOrder: 10, formSchemaId: 1, attachmentSchemaId: 1, createdBy: 'system-migration' },
+    { id: 2, code: 'ZERO_TOLERANCE', displayName: 'Zero Tolerance Alert', description: 'High-severity alert for zero-tolerance fraud policy violations', enabled: true, approvalRequired: false, defaultChannel: 'EMAIL', displayOrder: 20, formSchemaId: null, attachmentSchemaId: null, createdBy: 'system-migration' },
+    { id: 3, code: 'VENDOR_EMAIL', displayName: 'Vendor Notification', description: 'Notification sent to an external vendor or partner', enabled: true, approvalRequired: false, defaultChannel: 'EMAIL', displayOrder: 30, formSchemaId: null, attachmentSchemaId: null, createdBy: 'system-migration' },
+  ],
+
+  attachmentProviders: [
+    { key: 'PR_RECORDS', displayName: 'PR Records (CSV)', description: 'Exports system_pr_results_<catalog_id> rows for the case as CSV, via COPY against the usage DB.', available: true },
+    { key: 'CASE_PDF', displayName: 'Case PDF (Report Service)', description: 'Fetches a rendered case PDF from the HS report service — same integration point rule-based PR_RECORD attachments already use.', available: true },
+    { key: 'EXCEL_EXPORT', displayName: 'PR Records (Excel)', description: 'Same PR-records export as PR_RECORDS, rendered as a .xlsx workbook instead of CSV.', available: true },
+    { key: 'DASHBOARD_SNAPSHOT', displayName: 'Dashboard Snapshot', description: 'Superset dashboard screenshot, delivered by a separate microservice — not yet built (Phase 6).', available: false },
+    { key: 'EVIDENCE', displayName: 'Case Evidence Files', description: 'Evidence files attached to a case in HyperSense case management — data source not yet confirmed.', available: true },
+    { key: 'SUBSCRIBER_HISTORY', displayName: 'Subscriber History', description: 'Subscriber usage/event history export — usage-DB table/column mapping not yet confirmed.', available: true },
+    { key: 'CDR_SUMMARY', displayName: 'CDR Summary', description: 'Call Detail Record summary export — usage-DB table/column mapping not yet confirmed.', available: true },
+  ],
+
+  attachmentSchemas: [
+    { id: 1, name: 'Fraud Alert Bundle', description: 'PR records plus the case PDF for fraud alerts', createdBy: 'system-migration', providerKeys: ['PR_RECORDS', 'CASE_PDF'] },
   ],
 };
 
@@ -418,6 +432,24 @@ export const mockApi = {
   }),
   deleteFormSchema: (id) => delay().then(() => {
     MOCK.formSchemas = MOCK.formSchemas.filter(s => s.id !== id);
+    return null;
+  }),
+
+  listAttachmentProviders: () => delay().then(() => [...MOCK.attachmentProviders]),
+
+  listAttachmentSchemas: () => delay().then(() => [...MOCK.attachmentSchemas]),
+  createAttachmentSchema: (payload) => delay().then(() => {
+    const s = { id: MOCK.attachmentSchemas.length + 1, createdBy: 'mock-user', ...payload };
+    MOCK.attachmentSchemas.push(s);
+    return s;
+  }),
+  updateAttachmentSchema: (id, payload) => delay().then(() => {
+    const idx = MOCK.attachmentSchemas.findIndex(s => s.id === id);
+    if (idx >= 0) MOCK.attachmentSchemas[idx] = { ...MOCK.attachmentSchemas[idx], ...payload };
+    return MOCK.attachmentSchemas[idx];
+  }),
+  deleteAttachmentSchema: (id) => delay().then(() => {
+    MOCK.attachmentSchemas = MOCK.attachmentSchemas.filter(s => s.id !== id);
     return null;
   }),
 

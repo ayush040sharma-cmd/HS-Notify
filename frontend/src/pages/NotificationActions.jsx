@@ -11,6 +11,7 @@ const CHANNELS = ['EMAIL', 'WEBHOOK', 'SLACK', 'WHATSAPP', 'SMS'];
 const emptyForm = {
   code: '', displayName: '', description: '', enabled: true, approvalRequired: false,
   defaultChannel: 'EMAIL', icon: '', displayOrder: 0, roleRequired: '', formSchemaId: '',
+  attachmentSchemaId: '',
 };
 
 function toForm(a) {
@@ -20,6 +21,7 @@ function toForm(a) {
     defaultChannel: a.defaultChannel || 'EMAIL', icon: a.icon || '',
     displayOrder: a.displayOrder ?? 0, roleRequired: a.roleRequired || '',
     formSchemaId: a.formSchemaId ?? '',
+    attachmentSchemaId: a.attachmentSchemaId ?? '',
   };
 }
 
@@ -35,12 +37,14 @@ function toPayload(form) {
     displayOrder: Number(form.displayOrder) || 0,
     roleRequired: form.roleRequired || null,
     formSchemaId: form.formSchemaId === '' ? null : Number(form.formSchemaId),
+    attachmentSchemaId: form.attachmentSchemaId === '' ? null : Number(form.attachmentSchemaId),
   };
 }
 
 export default function NotificationActions() {
   const [actions, setActions] = useState(null);
   const [schemas, setSchemas] = useState([]);
+  const [attachmentSchemas, setAttachmentSchemas] = useState([]);
   const [selected, setSelected] = useState(null);
   const [editing, setEditing] = useState(null); // { form, actionId | null }
   const [saving, setSaving] = useState(false);
@@ -50,7 +54,11 @@ export default function NotificationActions() {
   const [busyId, setBusyId] = useState(null);
 
   const load = () => api.listActions().then(setActions);
-  useEffect(() => { load(); api.listFormSchemas().then(setSchemas).catch(() => setSchemas([])); }, []);
+  useEffect(() => {
+    load();
+    api.listFormSchemas().then(setSchemas).catch(() => setSchemas([]));
+    api.listAttachmentSchemas().then(setAttachmentSchemas).catch(() => setAttachmentSchemas([]));
+  }, []);
 
   const openCreate = () => { setError(null); setEditing({ form: { ...emptyForm }, actionId: null }); };
   const openEdit = (a) => { setError(null); setEditing({ form: toForm(a), actionId: a.id }); setSelected(null); };
@@ -90,6 +98,7 @@ export default function NotificationActions() {
   };
 
   const schemaName = (id) => schemas.find(s => s.id === id)?.name || null;
+  const attachmentSchemaName = (id) => attachmentSchemas.find(s => s.id === id)?.name || null;
 
   return (
     <div>
@@ -164,6 +173,7 @@ export default function NotificationActions() {
                 <div className="drawer-row"><span className="drawer-key">Approval Required</span><span className="drawer-val">{selected.approvalRequired ? 'Yes' : 'No'}</span></div>
                 <div className="drawer-row"><span className="drawer-key">Role Required</span><span className="drawer-val">{selected.roleRequired || '—'}</span></div>
                 <div className="drawer-row"><span className="drawer-key">Form Schema</span><span className="drawer-val">{selected.formSchemaId ? (schemaName(selected.formSchemaId) || `#${selected.formSchemaId}`) : '—'}</span></div>
+                <div className="drawer-row"><span className="drawer-key">Attachment Schema</span><span className="drawer-val">{selected.attachmentSchemaId ? (attachmentSchemaName(selected.attachmentSchemaId) || `#${selected.attachmentSchemaId}`) : '—'}</span></div>
                 <div className="drawer-row"><span className="drawer-key">Created By</span><span className="drawer-val">{selected.createdBy}</span></div>
               </div>
               <div className="drawer-section">
@@ -230,6 +240,15 @@ export default function NotificationActions() {
                   onChange={e => setEditing(s => ({ ...s, form: { ...s.form, formSchemaId: e.target.value } }))}>
                   <option value="">— none —</option>
                   {schemas.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+                </select>
+              </div>
+
+              <div className="form-group mb-12">
+                <label className="form-label">Attachment Schema (optional — providers to generate and zip on send)</label>
+                <select className="select" value={editing.form.attachmentSchemaId}
+                  onChange={e => setEditing(s => ({ ...s, form: { ...s.form, attachmentSchemaId: e.target.value } }))}>
+                  <option value="">— none —</option>
+                  {attachmentSchemas.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
                 </select>
               </div>
 

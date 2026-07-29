@@ -136,6 +136,13 @@ const liveApi = {
   deleteFormSchema: (id) => client.delete(`/form-schemas/${id}`).then(r => r.data),
 
   notify: (payload) => client.post('/notify', payload).then(r => r.data),
+
+  listAttachmentProviders: () => client.get('/attachments/providers').then(r => r.data),
+
+  listAttachmentSchemas: () => client.get('/attachment-schemas').then(r => r.data),
+  createAttachmentSchema: (payload) => client.post('/attachment-schemas', payload).then(r => r.data),
+  updateAttachmentSchema: (id, payload) => client.put(`/attachment-schemas/${id}`, payload).then(r => r.data),
+  deleteAttachmentSchema: (id) => client.delete(`/attachment-schemas/${id}`).then(r => r.data),
 };
 
 // Switch to mock API when VITE_MOCK=true (no backend required)
