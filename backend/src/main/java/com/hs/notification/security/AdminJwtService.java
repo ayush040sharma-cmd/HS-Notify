@@ -38,25 +38,29 @@ public class AdminJwtService {
         this.ttlMinutes = ttlMinutes;
     }
 
-    public String issueToken(String username) {
+    public String issueToken(String username, String role) {
         Instant now = Instant.now();
         return Jwts.builder()
                 .subject(username)
-                .claim("role", "ADMIN")
+                .claim("role", role)
                 .issuedAt(Date.from(now))
                 .expiration(Date.from(now.plus(ttlMinutes, ChronoUnit.MINUTES)))
                 .signWith(key)
                 .compact();
     }
 
-    public Optional<String> validateAndGetSubject(String token) {
+    /** username + role of the session; empty if the token is missing, expired, or tampered with. */
+    public Optional<SessionClaims> validateAndGetClaims(String token) {
         try {
             Claims claims = Jwts.parser().verifyWith(key).build().parseSignedClaims(token).getPayload();
-            return Optional.of(claims.getSubject());
+            String role = claims.get("role", String.class);
+            return Optional.of(new SessionClaims(claims.getSubject(), role != null ? role : "VIEWER"));
         } catch (JwtException | IllegalArgumentException e) {
             return Optional.empty();
         }
     }
+
+    public record SessionClaims(String username, String role) {}
 
     public long getTtlMinutes() {
         return ttlMinutes;

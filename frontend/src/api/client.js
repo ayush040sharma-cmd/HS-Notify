@@ -34,12 +34,20 @@ client.interceptors.response.use(
 // backend to authenticate against, so any non-empty credentials are accepted.
 const USER_KEY = 'hs_admin_user';
 
+// Role tiers, lowest to highest — used by hasMinRole() for UI gating. The
+// backend (SecurityConfig path matchers) is the real enforcement point; this
+// is UX only, so a stale/tampered client-side role can never grant real access.
+const ROLE_RANK = { VIEWER: 0, ANALYST: 1, MANAGER: 2, RAFM_HEAD: 2, ADMIN: 3 };
+
 export const auth = {
   isLoggedIn: () => !!localStorage.getItem(TOKEN_KEY),
   currentUser: () => {
     try { return JSON.parse(localStorage.getItem(USER_KEY) || 'null'); }
     catch { return null; }
   },
+  role: () => auth.currentUser()?.role || 'VIEWER',
+  hasMinRole: (minRole) => (ROLE_RANK[auth.role()] ?? 0) >= (ROLE_RANK[minRole] ?? 0),
+  isAdmin: () => auth.role() === 'ADMIN',
   login: async (username, password) => {
     if (MOCK) {
       if (!username || !password) {
@@ -48,13 +56,13 @@ export const auth = {
         throw err;
       }
       localStorage.setItem(TOKEN_KEY, 'mock-session-token');
-      localStorage.setItem(USER_KEY, JSON.stringify({ username, expiresInMinutes: null }));
+      localStorage.setItem(USER_KEY, JSON.stringify({ username, displayName: username, role: 'ADMIN', expiresInMinutes: null }));
       return { username };
     }
     const { data } = await client.post('/auth/login', { username, password });
     localStorage.setItem(TOKEN_KEY, data.token);
     localStorage.setItem(USER_KEY, JSON.stringify({
-      username: data.username, expiresInMinutes: data.expiresInMinutes,
+      username: data.username, displayName: data.displayName, role: data.role, expiresInMinutes: data.expiresInMinutes,
     }));
     return data;
   },
@@ -122,6 +130,8 @@ const liveApi = {
   updateEscalationConfig: (payload) => client.put('/escalation-config', payload).then(r => r.data),
 
   users: () => client.get('/users').then(r => r.data),
+  createUser: (payload) => client.post('/users', payload).then(r => r.data),
+  updateUser: (id, payload) => client.put(`/users/${id}`, payload).then(r => r.data),
   apiKeys: () => client.get('/users/api-keys').then(r => r.data),
 
   listActions: () => client.get('/actions').then(r => r.data),
@@ -136,6 +146,13 @@ const liveApi = {
   deleteFormSchema: (id) => client.delete(`/form-schemas/${id}`).then(r => r.data),
 
   notify: (payload) => client.post('/notify', payload).then(r => r.data),
+
+  listAttachmentProviders: () => client.get('/attachments/providers').then(r => r.data),
+
+  listAttachmentSchemas: () => client.get('/attachment-schemas').then(r => r.data),
+  createAttachmentSchema: (payload) => client.post('/attachment-schemas', payload).then(r => r.data),
+  updateAttachmentSchema: (id, payload) => client.put(`/attachment-schemas/${id}`, payload).then(r => r.data),
+  deleteAttachmentSchema: (id) => client.delete(`/attachment-schemas/${id}`).then(r => r.data),
 };
 
 // Switch to mock API when VITE_MOCK=true (no backend required)

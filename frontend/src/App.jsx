@@ -13,6 +13,8 @@ import NotificationRules from './pages/NotificationRules.jsx';
 import Templates from './pages/Templates.jsx';
 import NotificationActions from './pages/NotificationActions.jsx';
 import FormSchemas from './pages/FormSchemas.jsx';
+import AttachmentProviders from './pages/AttachmentProviders.jsx';
+import AttachmentSchemas from './pages/AttachmentSchemas.jsx';
 import SmtpConfig from './pages/SmtpConfig.jsx';
 import WhatsAppConfig from './pages/WhatsAppConfig.jsx';
 import ChannelPage from './pages/ChannelPage.jsx';
@@ -52,6 +54,8 @@ export default function App() {
           <Route path="/templates" element={<Templates />} />
           <Route path="/actions" element={<NotificationActions />} />
           <Route path="/form-schemas" element={<FormSchemas />} />
+          <Route path="/attachment-providers" element={<AttachmentProviders />} />
+          <Route path="/attachment-schemas" element={<AttachmentSchemas />} />
           <Route path="/channels/email" element={<SmtpConfig />} />
           <Route path="/channels/whatsapp" element={<WhatsAppConfig />} />
           <Route path="/channels/:channel" element={<ChannelPage />} />

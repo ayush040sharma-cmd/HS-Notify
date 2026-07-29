@@ -48,6 +48,7 @@ public class CaseWatchScheduler {
 
     private final boolean enabled;
     private final String tenantCode;
+    private final String ownerEmailDomain; // blank = don't attempt case_owner_email derivation
     private final HikariDataSource caseTblDataSource; // null when not configured
 
     private final TenantRepository tenantRepository;
@@ -60,6 +61,7 @@ public class CaseWatchScheduler {
             NotificationService notificationService,
             @Value("${hs-notification.case-watch.enabled:false}") boolean enabled,
             @Value("${hs-notification.case-watch.tenant-code:}") String tenantCode,
+            @Value("${hs-notification.case-watch.owner-email-domain:}") String ownerEmailDomain,
             @Value("${hs-notification.case-tbl-datasource.url:}") String url,
             @Value("${hs-notification.case-tbl-datasource.username:}") String username,
             @Value("${hs-notification.case-tbl-datasource.password:}") String password,
@@ -71,6 +73,7 @@ public class CaseWatchScheduler {
         this.notificationService = notificationService;
         this.enabled = enabled;
         this.tenantCode = tenantCode;
+        this.ownerEmailDomain = ownerEmailDomain;
 
         if (url == null || url.isBlank() || username == null || username.isBlank()) {
             log.warn("hs-notification.case-tbl-datasource is not configured — the case-watch poller will skip every run");
@@ -139,12 +142,14 @@ public class CaseWatchScheduler {
         long lastSeenCaseId = checkpoint.getLastSeenCaseId();
         long highestSeen = lastSeenCaseId;
 
-        // TODO once real case_tbl access/schema is confirmed: if case_tbl has an
-        // assigned-analyst/owner column, add it here and set context.put("case_owner_email", ...)
-        // below — that's the key NotificationService.resolveCurrentUserRecipient reads
-        // as the fallback for CURRENT_USER rules on this no-acting-user (scheduler) path.
+        // current_assigned_user is a HyperSense username (e.g. "ayush.sharma"), not an
+        // email — case_owner_email is derived by appending owner-email-domain when
+        // configured. That's the key NotificationService.resolveCurrentUserRecipient
+        // reads as the fallback for CURRENT_USER rules on this no-acting-user
+        // (scheduler) path; left unset (falls through to the next tier) when either
+        // the column is null or owner-email-domain isn't configured.
         String sql = "SELECT id, case_template_name, pipeline_names, grouped_entity_key, " +
-                "grouped_entity_value, severity, created_at FROM case_tbl WHERE id > ? ORDER BY id ASC";
+                "grouped_entity_value, severity, created_at, current_assigned_user FROM case_tbl WHERE id > ? ORDER BY id ASC";
 
         try (PreparedStatement ps = connection.prepareStatement(sql)) {
             ps.setLong(1, lastSeenCaseId);
@@ -163,6 +168,11 @@ public class CaseWatchScheduler {
                     Timestamp createdAt = rs.getTimestamp("created_at");
                     if (createdAt != null) {
                         context.put("created_at", createdAt.toInstant().atOffset(ZoneOffset.UTC).toString());
+                    }
+
+                    String assignedUser = rs.getString("current_assigned_user");
+                    if (assignedUser != null && !assignedUser.isBlank() && ownerEmailDomain != null && !ownerEmailDomain.isBlank()) {
+                        context.put("case_owner_email", assignedUser + "@" + ownerEmailDomain);
                     }
 
                     try {

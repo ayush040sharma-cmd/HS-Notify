@@ -145,6 +145,10 @@ hs-notification:
     enabled: ${CASE_WATCH_ENABLED:false}
     poll-interval-ms: ${CASE_WATCH_POLL_INTERVAL_MS:60000}
     tenant-code: ${CASE_WATCH_TENANT_CODE:}
+    # case_tbl.current_assigned_user is a HyperSense username (e.g. "ayush.sharma"),
+    # not an email — appended with @ to derive case_owner_email for the CURRENT_USER
+    # recipient fallback. Blank = skip derivation (falls through to the next tier).
+    owner-email-domain: ${CASE_WATCH_OWNER_EMAIL_DOMAIN:subex.com}
   case-tbl-datasource:
     # CHANGEME — real host/db/credentials for HyperSense's case_tbl database
     # (a separate Postgres DB from our own, and separate from usage-datasource

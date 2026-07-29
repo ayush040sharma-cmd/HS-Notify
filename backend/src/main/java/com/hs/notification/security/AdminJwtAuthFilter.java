@@ -28,6 +28,8 @@ import java.util.Optional;
  *  - /actuator, /docs, /api-docs, /swagger-ui — ops/health/docs surfaces.
  *  - GET /api/v1/templates/active, GET /api/v1/rules/active — unauthenticated
  *    dropdown lookups for HyperSense's PAS analyst action screen.
+ *  - GET /api/v1/actions, GET /api/v1/actions/{code}/schema — same, for the
+ *    action picker + dynamic form/checkbox discovery behind /api/v1/notify.
  */
 public class AdminJwtAuthFilter extends OncePerRequestFilter {
 
@@ -52,7 +54,8 @@ public class AdminJwtAuthFilter extends OncePerRequestFilter {
 
         // Unauthenticated PAS dropdown lookups — see SecurityConfig for the matching permitAll.
         if ("GET".equals(request.getMethod())
-                && ("/api/v1/templates/active".equals(path) || "/api/v1/rules/active".equals(path))) {
+                && ("/api/v1/templates/active".equals(path) || "/api/v1/rules/active".equals(path)
+                    || "/api/v1/actions".equals(path) || path.matches("/api/v1/actions/[^/]+/schema"))) {
             filterChain.doFilter(request, response);
             return;
         }
@@ -60,14 +63,14 @@ public class AdminJwtAuthFilter extends OncePerRequestFilter {
         String header = request.getHeader("Authorization");
         String token = (header != null && header.startsWith("Bearer ")) ? header.substring(7) : null;
 
-        Optional<String> subject = token != null ? jwtService.validateAndGetSubject(token) : Optional.empty();
-        if (subject.isEmpty()) {
+        Optional<AdminJwtService.SessionClaims> claims = token != null ? jwtService.validateAndGetClaims(token) : Optional.empty();
+        if (claims.isEmpty()) {
             response.sendError(HttpServletResponse.SC_UNAUTHORIZED, "Missing or invalid admin session token");
             return;
         }
 
         UsernamePasswordAuthenticationToken authToken = new UsernamePasswordAuthenticationToken(
-                subject.get(), null, List.of(new SimpleGrantedAuthority("ROLE_ADMIN")));
+                claims.get().username(), null, List.of(new SimpleGrantedAuthority("ROLE_" + claims.get().role())));
         SecurityContextHolder.getContext().setAuthentication(authToken);
 
         filterChain.doFilter(request, response);

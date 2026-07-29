@@ -43,6 +43,7 @@ export default function Layout({ children }) {
             <Activity size={13} color="var(--green)" />
             <span style={{ color: 'var(--green)', fontWeight: 700, fontSize: 12 }}>LIVE</span>
           </div>
+          <span className={`badge badge-${auth.role().toLowerCase()}`} title="Your role">{auth.role()}</span>
           <button className="btn btn-ghost btn-sm" onClick={() => navigate('/profile')} title="Profile & settings">
             <UserCircle size={13} /> {auth.currentUser()?.username || 'admin'}
           </button>

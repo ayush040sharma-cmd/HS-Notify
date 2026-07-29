@@ -2,12 +2,13 @@
   "info": {
     "name": "HS Notify API — BMS / PAS Integration",
     "_postman_id": "hs-notify-bms-pas-integration",
-    "description": "Endpoints for BMS and PAS to trigger notifications directly. Import this collection into Postman, set the `baseUrl` and `apiKey` collection variables, and run requests as-is against the two seeded test rules, or point `ruleCode` at your own rule once it's configured (see notes on each request).\n\nAuthentication: every call under /api/v1 (except /actuator/health) requires the `X-HS-API-Key` header. It is set once at the collection level below — do not repeat it per request.\n\nBefore BMS/PAS can successfully call send-by-rule for a given rule:\n1. The rule must exist and be status=ACTIVE (created via Notification Rules UI, then approved by a *different* user than the creator — maker-checker).\n2. Recipients: **To is dynamic, CC is fixed.** Pass the currently logged-in user's email as `recipientOverride` on every call — that becomes the To address for that send. CC always comes from the rule's configured recipient group and cannot be set by the caller; both PR_CLOSE_RULE and CASE_ESCALATE_RULE are configured to CC `FMS_Group@subex.com` on every send. If `recipientOverride` is omitted, To falls back to `FMS_Group@subex.com` too — so nothing is lost, but you should always send it in real usage.\n3. Any `context` keys you send must be on the template's allowed-variables whitelist, or they'll be silently stripped by DLP masking/whitelisting.",
+    "description": "Endpoints for BMS and PAS to trigger notifications directly. Import this collection into Postman, set the `baseUrl` and `apiKey` collection variables, and run requests as-is against the two seeded test rules, or point `ruleCode` at your own rule once it's configured (see notes on each request).\n\nAuthentication — two different headers depending on the call:\n- Send calls under /api/v1/notifications/** and /api/v1/notify require the `X-HS-API-Key` header. It is set once at the collection level below — do not repeat it per request.\n- The two action-discovery GETs (`/api/v1/actions`, `/api/v1/actions/{code}/schema`) are machine lookups with no tenant context, so they authenticate with a separate `X-HS-Lookup-Token` header instead (same pattern as `/api/v1/templates/active` and `/api/v1/rules/active`) — set per-request below, not at the collection level, since it's a different credential.\n\nBefore BMS/PAS can successfully call send-by-rule for a given rule:\n1. The rule must exist and be status=ACTIVE (created via Notification Rules UI, then approved by a *different* user than the creator — maker-checker).\n2. Recipients: **To is dynamic, CC is fixed.** Pass the currently logged-in user's email as `recipientOverride` on every call — that becomes the To address for that send. CC always comes from the rule's configured recipient group and cannot be set by the caller; both PR_CLOSE_RULE and CASE_ESCALATE_RULE are configured to CC `FMS_Group@subex.com` on every send. If `recipientOverride` is omitted, To falls back to `FMS_Group@subex.com` too — so nothing is lost, but you should always send it in real usage.\n3. Any `context` keys you send must be on the template's allowed-variables whitelist, or they'll be silently stripped by DLP masking/whitelisting.",
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
   },
   "variable": [
     { "key": "baseUrl", "value": "http://localhost:8089", "type": "string" },
     { "key": "apiKey", "value": "dev-local-key-change-me", "type": "string" },
+    { "key": "lookupToken", "value": "changeme-lookup-token", "type": "string", "description": "Shared secret for the unauthenticated action-discovery GETs (X-HS-Lookup-Token header) — separate credential from apiKey, matches hs-notification.security.lookup-token in application.yml." },
     { "key": "loggedInUserEmail", "value": "loggedin.user@subex.com", "type": "string", "description": "Set this to whichever user is actually logged into BMS/PAS at call time — it becomes the To address via recipientOverride." }
   ],
   "auth": {
@@ -30,6 +31,36 @@
           "path": ["actuator", "health"]
         },
         "description": "Confirm the platform is reachable and its DB/mail dependencies are UP before running anything else."
+      }
+    },
+    {
+      "name": "List Notification Actions (dropdown)",
+      "request": {
+        "method": "GET",
+        "header": [
+          { "key": "X-HS-Lookup-Token", "value": "{{lookupToken}}" }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/api/v1/actions",
+          "host": ["{{baseUrl}}"],
+          "path": ["api", "v1", "actions"]
+        },
+        "description": "The action picker for the unified /api/v1/notify flow — returns every enabled notification_action (FRAUD_ALERT, ZERO_TOLERANCE, VENDOR_EMAIL, CASE_SUMMARY, PR_CLOSE, DIRECT_SEND) in display_order, each with its `code` (use this as the `action` field on the /notify call) and, if set, a `formSchemaId` telling you whether 'Get Action Schema' below will return anything. Authenticates via `X-HS-Lookup-Token`, not `X-HS-API-Key` — this is a no-tenant-context machine lookup, same pattern as templates/active and rules/active."
+      }
+    },
+    {
+      "name": "Get Action Schema (FRAUD_ALERT example)",
+      "request": {
+        "method": "GET",
+        "header": [
+          { "key": "X-HS-Lookup-Token", "value": "{{lookupToken}}" }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/api/v1/actions/FRAUD_ALERT/schema",
+          "host": ["{{baseUrl}}"],
+          "path": ["api", "v1", "actions", "FRAUD_ALERT", "schema"]
+        },
+        "description": "Once an action code is picked from 'List Notification Actions', fetch its dynamic form here to render the actual fields — for FRAUD_ALERT this includes to/cc/bcc address, subject, priority + severity dropdowns, a free-text message, two real checkboxes (`include_case_details`, `include_pr_records`), and a recipient-group dynamic lookup. Swap `FRAUD_ALERT` in the path for any other action code from the list call — `schema` comes back `null` (still 200) for actions with no form_schema_id linked yet, e.g. ZERO_TOLERANCE/VENDOR_EMAIL/CASE_SUMMARY today. Same `X-HS-Lookup-Token` auth as the list call above."
       }
     },
     {

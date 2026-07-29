@@ -1,46 +1,51 @@
 package com.hs.notification.security;
 
-import org.springframework.beans.factory.annotation.Value;
+import com.hs.notification.model.AppUser;
+import com.hs.notification.repository.AppUserRepository;
 import org.springframework.stereotype.Service;
 
 import java.util.Optional;
 
 /**
- * Validates dashboard login credentials. The configured plaintext default
- * (hs-notification.security.admin-login.password) is hashed once at startup
- * via the same BCryptPasswordEncoder used for tenant API keys — it is never
- * stored or logged in plaintext beyond this constructor.
+ * Validates dashboard login credentials against app_user.password_hash
+ * (Phase 5 RBAC — replaces the single hardcoded admin-login.username/password
+ * pair everyone shared; UserAuthSeeder grandfathers that pair into the
+ * existing 'admin' row so it keeps working unchanged).
  */
 @Service
 public class AdminAuthService {
 
-    private final String username;
-    private final String passwordHash;
+    private final AppUserRepository appUserRepository;
     private final AdminJwtService jwtService;
 
-    public AdminAuthService(
-            @Value("${hs-notification.security.admin-login.username}") String username,
-            @Value("${hs-notification.security.admin-login.password}") String password,
-            AdminJwtService jwtService) {
-        this.username = username;
-        this.passwordHash = ApiKeyResolver.BCRYPT.encode(password);
+    public AdminAuthService(AppUserRepository appUserRepository, AdminJwtService jwtService) {
+        this.appUserRepository = appUserRepository;
         this.jwtService = jwtService;
     }
 
-    public Optional<String> login(String candidateUsername, String candidatePassword) {
+    public Optional<LoginResult> login(String candidateUsername, String candidatePassword) {
         if (candidateUsername == null || candidatePassword == null) {
             return Optional.empty();
         }
-        if (!username.equals(candidateUsername)) {
+        Optional<AppUser> userOpt = appUserRepository.findByUsername(candidateUsername);
+        if (userOpt.isEmpty()) {
             return Optional.empty();
         }
-        if (!ApiKeyResolver.BCRYPT.matches(candidatePassword, passwordHash)) {
+        AppUser user = userOpt.get();
+        if (!user.isActive() || user.getPasswordHash() == null) {
             return Optional.empty();
         }
-        return Optional.of(jwtService.issueToken(candidateUsername));
+        if (!ApiKeyResolver.BCRYPT.matches(candidatePassword, user.getPasswordHash())) {
+            return Optional.empty();
+        }
+        String token = jwtService.issueToken(user.getUsername(), user.getRole());
+        return Optional.of(new LoginResult(token, user.getRole(),
+                user.getDisplayName() != null ? user.getDisplayName() : user.getUsername()));
     }
 
     public long getTtlMinutes() {
         return jwtService.getTtlMinutes();
     }
+
+    public record LoginResult(String token, String role, String displayName) {}
 }
