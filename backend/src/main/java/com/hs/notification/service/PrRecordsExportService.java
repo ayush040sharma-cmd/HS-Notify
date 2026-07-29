@@ -75,6 +75,10 @@ public class PrRecordsExportService {
         }
     }
 
+    public boolean isConfigured() {
+        return dataSource != null;
+    }
+
     public record ExportResult(byte[] csvBytes, int rowCount, String failureReason) {
         public boolean success() {
             return failureReason == null;

@@ -89,6 +89,13 @@
             <version>1.0.10</version>
         </dependency>
 
+        <!-- Excel generation (AttachmentProvider EXCEL_EXPORT) -->
+        <dependency>
+            <groupId>org.apache.poi</groupId>
+            <artifactId>poi-ooxml</artifactId>
+            <version>5.3.0</version>
+        </dependency>
+
         <!-- Actuator: health endpoint for the watchdog / monitoring -->
         <dependency>
             <groupId>org.springframework.boot</groupId>

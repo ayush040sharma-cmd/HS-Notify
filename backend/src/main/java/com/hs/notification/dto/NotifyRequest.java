@@ -35,5 +35,13 @@ public record NotifyRequest(
 ) {
     public record Recipients(List<String> to, List<String> cc, List<String> bcc) {}
 
-    public record AttachmentOptions(Boolean includeCaseLink, Boolean includePrRecords, Boolean includeAttachment) {}
+    /**
+     * providers (Phase 4): explicit AttachmentProvider keys, e.g.
+     * ["PR_RECORDS", "EXCEL_EXPORT"] — run concurrently, zipped together if
+     * more than one succeeds. Takes priority over includePrRecords when
+     * present; when absent, includePrRecords keeps its exact original
+     * single-CSV behavior unchanged (see NotificationService.notify).
+     */
+    public record AttachmentOptions(Boolean includeCaseLink, Boolean includePrRecords, Boolean includeAttachment,
+                                     List<String> providers) {}
 }

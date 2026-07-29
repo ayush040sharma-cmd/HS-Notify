@@ -75,8 +75,28 @@ public class AttachmentService {
      * policy can be exercised independently in tests for each case.
      */
     String callReportService(AttachmentRule rule, NotificationJob job, Map<String, Object> context) {
+        byte[] pdfBytes = fetchReportBytes(rule.getReportIdentifier(), job.getTenant().getTenantId(), job.getSourceReference());
+
+        try {
+            File tmp = Files.createTempFile("hs-report-", ".pdf").toFile();
+            try (FileOutputStream fos = new FileOutputStream(tmp)) {
+                fos.write(pdfBytes);
+            }
+            log.info("Report downloaded ({} bytes) for job {} → {}", pdfBytes.length, job.getJobId(), tmp.getAbsolutePath());
+            return tmp.getAbsolutePath();
+        } catch (Exception e) {
+            throw new AttachmentException("UNKNOWN", "Failed to write downloaded report to disk: " + e.getMessage());
+        }
+    }
+
+    /**
+     * Public so AttachmentProvider implementations (Phase 4) can reuse this
+     * same HTTP call/error-mapping without going through the AttachmentRule-
+     * shaped legacy entry point above. isReportServiceConfigured() lets a
+     * provider report availability without triggering an HTTP call.
+     */
+    public byte[] fetchReportBytes(String reportIdentifier, Long tenantId, String sourceReference) {
         if (reportServiceBaseUrl == null || reportServiceBaseUrl.isBlank()) {
-            log.warn("report-service.base-url not configured — skipping report attachment for job {}", job.getJobId());
             throw new AttachmentException("CONFIGURATION",
                     "Report service base URL is not configured (set hs-notification.report-service.base-url)");
         }
@@ -84,18 +104,18 @@ public class AttachmentService {
         String base = reportServiceBaseUrl.endsWith("/")
                 ? reportServiceBaseUrl.substring(0, reportServiceBaseUrl.length() - 1)
                 : reportServiceBaseUrl;
-        String url = base + "/reports/" + rule.getReportIdentifier();
+        String url = base + "/reports/" + reportIdentifier;
 
         try {
-            byte[] pdfBytes = restClient.get()
+            byte[] bytes = restClient.get()
                     .uri(url, uriBuilder -> uriBuilder
-                            .queryParam("tenantId", job.getTenant().getTenantId())
-                            .queryParam("sourceRef", job.getSourceReference())
+                            .queryParam("tenantId", tenantId)
+                            .queryParam("sourceRef", sourceReference)
                             .build())
                     .retrieve()
                     .onStatus(HttpStatusCode::is4xxClientError, (req, resp) -> {
                         throw new AttachmentException("CLIENT_ERROR",
-                                "Report service returned " + resp.getStatusCode() + " for " + rule.getReportIdentifier()
+                                "Report service returned " + resp.getStatusCode() + " for " + reportIdentifier
                                 + " — check reportIdentifier config");
                     })
                     .onStatus(HttpStatusCode::is5xxServerError, (req, resp) -> {
@@ -104,16 +124,10 @@ public class AttachmentService {
                     })
                     .body(byte[].class);
 
-            if (pdfBytes == null || pdfBytes.length == 0) {
+            if (bytes == null || bytes.length == 0) {
                 throw new AttachmentException("EMPTY_RESPONSE", "Report service returned empty body");
             }
-
-            File tmp = Files.createTempFile("hs-report-", ".pdf").toFile();
-            try (FileOutputStream fos = new FileOutputStream(tmp)) {
-                fos.write(pdfBytes);
-            }
-            log.info("Report downloaded ({} bytes) for job {} → {}", pdfBytes.length, job.getJobId(), tmp.getAbsolutePath());
-            return tmp.getAbsolutePath();
+            return bytes;
 
         } catch (AttachmentException e) {
             throw e;
@@ -123,6 +137,10 @@ public class AttachmentService {
         } catch (Exception e) {
             throw new AttachmentException("UNKNOWN", "Report service call failed: " + e.getMessage());
         }
+    }
+
+    public boolean isReportServiceConfigured() {
+        return reportServiceBaseUrl != null && !reportServiceBaseUrl.isBlank();
     }
 
     private void handleFailure(NotificationJob job, AttachmentRule rule, String reason) {

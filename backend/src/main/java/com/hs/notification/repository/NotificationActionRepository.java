@@ -15,4 +15,6 @@ public interface NotificationActionRepository extends JpaRepository<Notification
     boolean existsByCode(String code);
 
     boolean existsByFormSchemaId(Long formSchemaId);
+
+    boolean existsByAttachmentSchemaId(Long attachmentSchemaId);
 }

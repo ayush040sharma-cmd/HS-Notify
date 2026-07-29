@@ -11,6 +11,8 @@ import com.hs.notification.repository.NotificationActionRepository;
 import com.hs.notification.repository.NotificationJobRepository;
 import com.hs.notification.repository.NotificationRuleRepository;
 import com.hs.notification.repository.NotificationTemplateRepository;
+import com.hs.notification.service.attachment.AttachmentOrchestrationService;
+import com.hs.notification.service.attachment.AttachmentStorageWriter;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
@@ -18,8 +20,6 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.io.IOException;
-import java.nio.file.Files;
-import java.nio.file.Path;
 import java.time.OffsetDateTime;
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -42,12 +42,13 @@ public class NotificationService {
     private final TemplateRenderingService templateRenderingService;
     private final AttachmentService attachmentService;
     private final PrRecordsExportService prRecordsExportService;
+    private final AttachmentOrchestrationService attachmentOrchestrationService;
+    private final AttachmentStorageWriter attachmentStorageWriter;
     private final MailDispatchService mailDispatchService;
     private final AuditService auditService;
     private final FeatureToggleService featureToggleService;
     private final RateLimitService rateLimitService;
     private final String caseLinkBaseUrl;
-    private final String attachmentsStorageDir;
 
     public NotificationService(NotificationRuleRepository ruleRepository,
                                NotificationJobRepository jobRepository,
@@ -57,12 +58,13 @@ public class NotificationService {
                                TemplateRenderingService templateRenderingService,
                                AttachmentService attachmentService,
                                PrRecordsExportService prRecordsExportService,
+                               AttachmentOrchestrationService attachmentOrchestrationService,
+                               AttachmentStorageWriter attachmentStorageWriter,
                                MailDispatchService mailDispatchService,
                                AuditService auditService,
                                FeatureToggleService featureToggleService,
                                RateLimitService rateLimitService,
-                               @Value("${hs-notification.case-link.base-url}") String caseLinkBaseUrl,
-                               @Value("${hs-notification.attachments.storage-path:${java.io.tmpdir}/hs-notification-attachments}") String attachmentsStorageDir) {
+                               @Value("${hs-notification.case-link.base-url}") String caseLinkBaseUrl) {
         this.ruleRepository = ruleRepository;
         this.jobRepository = jobRepository;
         this.templateRepository = templateRepository;
@@ -71,12 +73,13 @@ public class NotificationService {
         this.templateRenderingService = templateRenderingService;
         this.attachmentService = attachmentService;
         this.prRecordsExportService = prRecordsExportService;
+        this.attachmentOrchestrationService = attachmentOrchestrationService;
+        this.attachmentStorageWriter = attachmentStorageWriter;
         this.mailDispatchService = mailDispatchService;
         this.auditService = auditService;
         this.featureToggleService = featureToggleService;
         this.rateLimitService = rateLimitService;
         this.caseLinkBaseUrl = caseLinkBaseUrl;
-        this.attachmentsStorageDir = attachmentsStorageDir;
     }
 
     /**
@@ -206,7 +209,7 @@ public class NotificationService {
     public CustomSendResult submitCustomNotification(Tenant tenant, SendCustomNotificationRequest request, String actor) {
         SendCustomNotificationRequest.Flags flags = request.flags();
         NotifyRequest.AttachmentOptions attachmentOptions = flags != null
-                ? new NotifyRequest.AttachmentOptions(flags.includeCaseLink(), flags.includePrRecords(), flags.includeAttachment())
+                ? new NotifyRequest.AttachmentOptions(flags.includeCaseLink(), flags.includePrRecords(), flags.includeAttachment(), null)
                 : null;
 
         NotifyRequest notifyRequest = new NotifyRequest(
@@ -284,6 +287,7 @@ public class NotificationService {
         boolean includeCaseLink = opts != null && Boolean.TRUE.equals(opts.includeCaseLink());
         boolean includePrRecords = opts != null && Boolean.TRUE.equals(opts.includePrRecords());
         boolean includeAttachment = opts != null && Boolean.TRUE.equals(opts.includeAttachment());
+        List<String> requestedProviders = opts != null && opts.providers() != null ? opts.providers() : List.of();
 
         String caseLink = null;
         if (includeCaseLink) {
@@ -345,6 +349,19 @@ public class NotificationService {
         if (request.attachmentPath() != null && !request.attachmentPath().isBlank()) {
             job.setAttachmentPath(request.attachmentPath());
             job.setAttachmentStatus("GENERATED");
+        } else if (!requestedProviders.isEmpty()) {
+            // Phase 4: multi-provider path — takes priority over the legacy
+            // includePrRecords boolean when providers is explicitly given.
+            // Old callers never set this field, so their behavior is untouched.
+            var bundle = attachmentOrchestrationService.generateBundle(requestedProviders, tenant, effectiveContext);
+            notices.addAll(bundle.notices());
+            if (bundle.path() != null) {
+                job.setAttachmentPath(bundle.path());
+                job.setAttachmentStatus("GENERATED");
+            } else {
+                job.setAttachmentStatus("FAILED");
+                job.setLastError("No attachments could be generated: " + String.join("; ", bundle.notices()));
+            }
         } else if (includePrRecords) {
             prRecordsFailureReason = attachPrRecordsCsv(job, effectiveContext);
             notices.add(prRecordsFailureReason == null
@@ -404,15 +421,8 @@ public class NotificationService {
         }
     }
 
-    /** Same UUID__displayName storage convention AttachmentUploadController uses, so EmailChannelSender derives the right filename. */
     private String writeToAttachmentStorage(byte[] content, String displayName) throws IOException {
-        String safeName = displayName.replaceAll("[^a-zA-Z0-9._-]", "_");
-        String storedName = UUID.randomUUID() + "__" + safeName;
-        Path dir = Path.of(attachmentsStorageDir);
-        Files.createDirectories(dir);
-        Path target = dir.resolve(storedName);
-        Files.write(target, content);
-        return target.toAbsolutePath().toString();
+        return attachmentStorageWriter.write(content, displayName);
     }
 
     private String escapeHtml(String input) {
