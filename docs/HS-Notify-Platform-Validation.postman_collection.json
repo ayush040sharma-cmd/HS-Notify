@@ -1,8 +1,8 @@
 {
   "info": {
-    "name": "HS Notify — Platform Validation (Phases 1-4)",
+    "name": "HS Notify — Platform Validation (Phases 1-5 + full API surface)",
     "_postman_id": "hs-notify-platform-validation",
-    "description": "Validates the metadata-driven platform work: Notification Action Registry (Phase 1), Form Metadata Engine (Phase 2), unified /notify engine (Phase 3), and the Attachment Provider Pattern (Phase 4). Run \"00 Auth > Login\" first — it saves the admin JWT into {{jwtToken}}, which every other request picks up automatically via the collection-level pre-request script (along with X-HS-API-Key). For the day-to-day BMS/PAS integration endpoints (send-by-rule/send-direct), see HS-Notify-API.postman_collection.json instead — this collection is for validating the platform build itself.",
+    "description": "Validates the metadata-driven platform work: Notification Action Registry (Phase 1), Form Metadata Engine (Phase 2), unified /notify engine (Phase 3), the Attachment Provider Pattern (Phase 4), and RBAC/maker-checker on rules & templates (Phase 5) — plus read-only coverage of every remaining controller in the codebase (users & admin API keys, job queue, dashboard/metrics/audit/logs, watchdog, service health, SMTP/WhatsApp/escalation config, attachment upload). Run \"00 Auth > Login\" first — it saves the admin JWT into {{jwtToken}}, which every other request picks up automatically via the collection-level pre-request script (along with X-HS-API-Key). For the day-to-day BMS/PAS integration endpoints (send-by-rule/send-direct), see HS-Notify-API.postman_collection.json instead — this collection is for validating the platform build itself. NOTE: folder 07's 'Requeue Job' request deliberately targets a fake job id — do not repoint it at a real job, since requeue triggers an actual send through the live Subex SMTP relay. Folder 08 omits SMTP/WhatsApp/Escalation PUTs for the same reason (avoid mutating live send config).",
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
   },
   "variable": [
@@ -10,7 +10,8 @@
     { "key": "apiKey", "value": "dev-local-key-change-me" },
     { "key": "adminUsername", "value": "admin" },
     { "key": "adminPassword", "value": "admin123" },
-    { "key": "jwtToken", "value": "" }
+    { "key": "jwtToken", "value": "" },
+    { "key": "adminApiToken", "value": "changeme-admin-token", "description": "X-Admin-Token bootstrap credential for AdminController's /api/v1/admin/** key-lifecycle endpoints — separate from the JWT and from apiKey, matches hs-notification.security.admin-token in application.yml." }
   ],
   "event": [
     {
@@ -185,6 +186,265 @@
             "body": { "mode": "raw", "raw": "{\n  \"action\": \"CASE_SUMMARY\",\n  \"recipients\": { \"to\": [\"test@example.com\"] },\n  \"subject\": \"Postman multi-provider test\",\n  \"payload\": { \"case_id\": \"REPLACE_WITH_REAL_CASE_ID\", \"catalog_id\": \"REPLACE_WITH_REAL_CATALOG_ID\", \"case_template_name\": \"PostmanTest\" },\n  \"attachmentOptions\": { \"providers\": [\"PR_RECORDS\", \"EXCEL_EXPORT\"] }\n}" }
           },
           "description": "Requires hs-notification.usage-datasource to be configured (see .env) and a real case_id/catalog_id pair with rows in system_pr_results_<catalog_id> — replace the placeholders. With two providers succeeding, the job's attachmentPath will be a .zip containing both files."
+        }
+      ]
+    },
+    {
+      "name": "05 Rules & Templates (RBAC + Maker-Checker, Phase 5)",
+      "item": [
+        {
+          "name": "List Rules",
+          "request": { "method": "GET", "url": { "raw": "{{baseUrl}}/api/v1/rules", "host": ["{{baseUrl}}"], "path": ["api","v1","rules"] } }
+        },
+        {
+          "name": "Rule Form Options (templates / recipient groups / escalation chains)",
+          "request": { "method": "GET", "url": { "raw": "{{baseUrl}}/api/v1/rules/form-options", "host": ["{{baseUrl}}"], "path": ["api","v1","rules","form-options"] } }
+        },
+        {
+          "name": "List Active Rules (lookup dropdown)",
+          "request": {
+            "method": "GET",
+            "url": { "raw": "{{baseUrl}}/api/v1/rules/active?tenantCode=SUBEX", "host": ["{{baseUrl}}"], "path": ["api","v1","rules","active"], "query": [ { "key": "tenantCode", "value": "SUBEX" } ] }
+          },
+          "description": "permitAll in SecurityConfig — same unauthenticated machine-lookup pattern as /api/v1/actions. Omitting tenantCode still works but logs a warning and returns every tenant's active rules."
+        },
+        {
+          "name": "List Templates",
+          "request": { "method": "GET", "url": { "raw": "{{baseUrl}}/api/v1/templates", "host": ["{{baseUrl}}"], "path": ["api","v1","templates"] } }
+        },
+        {
+          "name": "List Active Templates (lookup dropdown)",
+          "request": {
+            "method": "GET",
+            "url": { "raw": "{{baseUrl}}/api/v1/templates/active?tenantCode=SUBEX", "host": ["{{baseUrl}}"], "path": ["api","v1","templates","active"], "query": [ { "key": "tenantCode", "value": "SUBEX" } ] }
+          }
+        },
+        {
+          "name": "Create Test Template",
+          "request": {
+            "method": "POST",
+            "header": [ { "key": "Content-Type", "value": "application/json" } ],
+            "url": { "raw": "{{baseUrl}}/api/v1/templates", "host": ["{{baseUrl}}"], "path": ["api","v1","templates"] },
+            "body": { "mode": "raw", "raw": "{\n  \"templateCode\": \"POSTMAN_VALIDATION_TEMPLATE\",\n  \"channel\": \"EMAIL\",\n  \"subjectTemplate\": \"Postman validation\",\n  \"bodyTemplate\": \"Hello, this is a Postman validation template.\",\n  \"allowedVariables\": [\"name\"],\n  \"piiMaskFields\": []\n}" }
+          },
+          "event": [ { "listen": "test", "script": { "type": "text/javascript", "exec": [
+            "pm.collectionVariables.set('testTemplateId', pm.response.json().templateId);",
+            "pm.test('created as DRAFT', () => pm.expect(pm.response.json().status).to.eql('DRAFT'));"
+          ] } } ]
+        },
+        {
+          "name": "Approve Test Template",
+          "request": {
+            "method": "POST",
+            "header": [ { "key": "X-Operator-Username", "value": "postman-checker" } ],
+            "url": { "raw": "{{baseUrl}}/api/v1/templates/{{testTemplateId}}/approve", "host": ["{{baseUrl}}"], "path": ["api","v1","templates","{{testTemplateId}}","approve"] }
+          },
+          "description": "X-Operator-Username must differ from the creator (the JWT-authenticated admin user) or this 409s with a maker-checker violation — same rule TemplateController shares with RuleController.approve().",
+          "event": [ { "listen": "test", "script": { "type": "text/javascript", "exec": [
+            "pm.test('activated', () => pm.expect(pm.response.json().status).to.eql('ACTIVE'));"
+          ] } } ]
+        },
+        {
+          "name": "Create Test Rule (references test template)",
+          "request": {
+            "method": "POST",
+            "header": [ { "key": "Content-Type", "value": "application/json" } ],
+            "url": { "raw": "{{baseUrl}}/api/v1/rules", "host": ["{{baseUrl}}"], "path": ["api","v1","rules"] },
+            "body": { "mode": "raw", "raw": "{\n  \"ruleCode\": \"POSTMAN_VALIDATION_RULE\",\n  \"triggerEvent\": \"POSTMAN_TEST\",\n  \"triggerSource\": \"POSTMAN\",\n  \"templateCode\": \"POSTMAN_VALIDATION_TEMPLATE\",\n  \"toEmails\": [\"test@example.com\"],\n  \"recipientMode\": \"STATIC_GROUP\",\n  \"maxRetryCount\": 3,\n  \"retryBackoffSeconds\": 60,\n  \"retryBackoffMultiplier\": 2.0,\n  \"onFinalFailure\": \"DROP\",\n  \"attachmentType\": \"NONE\"\n}" }
+          },
+          "description": "Depends on 'Create Test Template' having run first in this same run — templateCode must already exist.",
+          "event": [ { "listen": "test", "script": { "type": "text/javascript", "exec": [
+            "pm.collectionVariables.set('testRuleId', pm.response.json().ruleId);",
+            "pm.test('created as DRAFT', () => pm.expect(pm.response.json().status).to.eql('DRAFT'));"
+          ] } } ]
+        },
+        {
+          "name": "Submit Test Rule for Review",
+          "request": {
+            "method": "POST",
+            "url": { "raw": "{{baseUrl}}/api/v1/rules/{{testRuleId}}/submit-for-review", "host": ["{{baseUrl}}"], "path": ["api","v1","rules","{{testRuleId}}","submit-for-review"] }
+          },
+          "event": [ { "listen": "test", "script": { "type": "text/javascript", "exec": [
+            "pm.test('now PENDING_REVIEW', () => pm.expect(pm.response.json().status).to.eql('PENDING_REVIEW'));"
+          ] } } ]
+        },
+        {
+          "name": "Approve Test Rule",
+          "request": {
+            "method": "POST",
+            "header": [ { "key": "X-Operator-Username", "value": "postman-checker" } ],
+            "url": { "raw": "{{baseUrl}}/api/v1/rules/{{testRuleId}}/approve", "host": ["{{baseUrl}}"], "path": ["api","v1","rules","{{testRuleId}}","approve"] }
+          },
+          "event": [ { "listen": "test", "script": { "type": "text/javascript", "exec": [
+            "pm.test('now ACTIVE', () => pm.expect(pm.response.json().status).to.eql('ACTIVE'));"
+          ] } } ]
+        },
+        {
+          "name": "Disable Test Rule",
+          "request": {
+            "method": "POST",
+            "url": { "raw": "{{baseUrl}}/api/v1/rules/{{testRuleId}}/disable", "host": ["{{baseUrl}}"], "path": ["api","v1","rules","{{testRuleId}}","disable"] }
+          },
+          "description": "Final state for the test rule — DISABLED, not deleted (see the next request for why delete isn't a clean round trip here).",
+          "event": [ { "listen": "test", "script": { "type": "text/javascript", "exec": [
+            "pm.test('now DISABLED', () => pm.expect(pm.response.json().status).to.eql('DISABLED'));"
+          ] } } ]
+        },
+        {
+          "name": "  -> Delete Test Rule (expect 409, has audit history)",
+          "request": { "method": "DELETE", "url": { "raw": "{{baseUrl}}/api/v1/rules/{{testRuleId}}", "host": ["{{baseUrl}}"], "path": ["api","v1","rules","{{testRuleId}}"] } },
+          "description": "Every create/submit/approve/disable call above wrote a RULE_CHANGED audit-log row against this rule, so RuleController.delete()'s existsByRule_RuleId guard always trips once a rule has been through the lifecycle — deleting is only possible for a rule that was created and never touched again. This is the intended behavior (disable, don't delete, once a rule has history), not a bug.",
+          "event": [ { "listen": "test", "script": { "type": "text/javascript", "exec": [
+            "pm.test('409 - has audit/send history', () => pm.response.to.have.status(409));"
+          ] } } ]
+        },
+        {
+          "name": "  -> Delete Test Template (expect 409, still referenced by the rule)",
+          "request": { "method": "DELETE", "url": { "raw": "{{baseUrl}}/api/v1/templates/{{testTemplateId}}", "host": ["{{baseUrl}}"], "path": ["api","v1","templates","{{testTemplateId}}"] } },
+          "description": "The test rule above still points at this template (and couldn't be deleted either), so TemplateController.delete()'s existsByTemplate_TemplateId guard trips too. Leaves both the DISABLED test rule and this template in the dev DB — harmless, but if you want a clean DB, delete these two rows manually afterward.",
+          "event": [ { "listen": "test", "script": { "type": "text/javascript", "exec": [
+            "pm.test('409 - still referenced by a rule', () => pm.response.to.have.status(409));"
+          ] } } ]
+        }
+      ]
+    },
+    {
+      "name": "06 Users & Admin API Keys",
+      "item": [
+        {
+          "name": "List Users (current tenant)",
+          "request": { "method": "GET", "url": { "raw": "{{baseUrl}}/api/v1/users", "host": ["{{baseUrl}}"], "path": ["api","v1","users"] } }
+        },
+        {
+          "name": "List My Tenant's API Keys",
+          "request": { "method": "GET", "url": { "raw": "{{baseUrl}}/api/v1/users/api-keys", "host": ["{{baseUrl}}"], "path": ["api","v1","users","api-keys"] } }
+        },
+        {
+          "name": "Admin: List API Keys for Tenant",
+          "request": {
+            "method": "GET",
+            "header": [ { "key": "X-Admin-Token", "value": "{{adminApiToken}}" } ],
+            "url": { "raw": "{{baseUrl}}/api/v1/admin/api-keys/SUBEX", "host": ["{{baseUrl}}"], "path": ["api","v1","admin","api-keys","SUBEX"] }
+          },
+          "description": "AdminController is permitAll at the SecurityConfig level and gates itself internally on X-Admin-Token — a bootstrap credential distinct from both the JWT and apiKey collection variables."
+        },
+        {
+          "name": "Admin: Issue Test API Key",
+          "request": {
+            "method": "POST",
+            "header": [ { "key": "X-Admin-Token", "value": "{{adminApiToken}}" }, { "key": "Content-Type", "value": "application/json" } ],
+            "url": { "raw": "{{baseUrl}}/api/v1/admin/api-keys", "host": ["{{baseUrl}}"], "path": ["api","v1","admin","api-keys"] },
+            "body": { "mode": "raw", "raw": "{\n  \"tenantCode\": \"SUBEX\",\n  \"description\": \"Postman validation test key\",\n  \"createdBy\": \"postman\",\n  \"expiresInDays\": 1\n}" }
+          },
+          "description": "rawKey is returned once, in this response only — it is never stored in plaintext and cannot be recovered later.",
+          "event": [ { "listen": "test", "script": { "type": "text/javascript", "exec": [
+            "pm.collectionVariables.set('testKeyId', pm.response.json().keyId);",
+            "pm.test('rawKey returned', () => pm.expect(pm.response.json().rawKey).to.be.a('string'));"
+          ] } } ]
+        },
+        {
+          "name": "  -> Admin: Revoke Test API Key",
+          "request": {
+            "method": "POST",
+            "header": [ { "key": "X-Admin-Token", "value": "{{adminApiToken}}" }, { "key": "Content-Type", "value": "application/json" } ],
+            "url": { "raw": "{{baseUrl}}/api/v1/admin/api-keys/{{testKeyId}}/revoke", "host": ["{{baseUrl}}"], "path": ["api","v1","admin","api-keys","{{testKeyId}}","revoke"] },
+            "body": { "mode": "raw", "raw": "{\n  \"revokedBy\": \"postman\"\n}" }
+          },
+          "event": [ { "listen": "test", "script": { "type": "text/javascript", "exec": [
+            "pm.test('revoked', () => pm.expect(pm.response.json().revoked).to.eql(true));"
+          ] } } ]
+        }
+      ]
+    },
+    {
+      "name": "07 Jobs, Metrics & Observability (read-only)",
+      "item": [
+        {
+          "name": "List Jobs",
+          "request": { "method": "GET", "url": { "raw": "{{baseUrl}}/api/v1/jobs", "host": ["{{baseUrl}}"], "path": ["api","v1","jobs"] } }
+        },
+        {
+          "name": "Job Queue Stats",
+          "request": { "method": "GET", "url": { "raw": "{{baseUrl}}/api/v1/jobs/stats", "host": ["{{baseUrl}}"], "path": ["api","v1","jobs","stats"] } }
+        },
+        {
+          "name": "Requeue Job (fake id — SAFE, do not point at a real job)",
+          "request": { "method": "POST", "url": { "raw": "{{baseUrl}}/api/v1/jobs/999999999/requeue", "host": ["{{baseUrl}}"], "path": ["api","v1","jobs","999999999","requeue"] } },
+          "description": "WARNING: requeue calls MailDispatchService.attemptSend() on the job — against a real job this fires an actual send through the live Subex SMTP relay (see CLAUDE.md: no local mail catcher). This request deliberately targets a nonexistent job id so it 400s/404s harmlessly instead. Never repoint this at a real jobId in an automated run.",
+          "event": [ { "listen": "test", "script": { "type": "text/javascript", "exec": [
+            "pm.test('job not found', () => pm.expect(pm.response.code).to.be.oneOf([400, 404]));"
+          ] } } ]
+        },
+        {
+          "name": "Cancel Job (fake id — safe)",
+          "request": { "method": "POST", "url": { "raw": "{{baseUrl}}/api/v1/jobs/999999999/cancel", "host": ["{{baseUrl}}"], "path": ["api","v1","jobs","999999999","cancel"] } },
+          "event": [ { "listen": "test", "script": { "type": "text/javascript", "exec": [
+            "pm.test('job not found', () => pm.expect(pm.response.code).to.be.oneOf([400, 404]));"
+          ] } } ]
+        },
+        {
+          "name": "Metrics (7-day chart data)",
+          "request": { "method": "GET", "url": { "raw": "{{baseUrl}}/api/v1/metrics", "host": ["{{baseUrl}}"], "path": ["api","v1","metrics"] } }
+        },
+        {
+          "name": "Dashboard Summary",
+          "request": { "method": "GET", "url": { "raw": "{{baseUrl}}/api/v1/dashboard/summary", "host": ["{{baseUrl}}"], "path": ["api","v1","dashboard","summary"] } }
+        },
+        {
+          "name": "Dashboard Channel Breakdown",
+          "request": { "method": "GET", "url": { "raw": "{{baseUrl}}/api/v1/dashboard/channel-breakdown", "host": ["{{baseUrl}}"], "path": ["api","v1","dashboard","channel-breakdown"] } }
+        },
+        {
+          "name": "Audit Log",
+          "request": { "method": "GET", "url": { "raw": "{{baseUrl}}/api/v1/audit", "host": ["{{baseUrl}}"], "path": ["api","v1","audit"] } }
+        },
+        {
+          "name": "Service Health (dependency panel)",
+          "request": { "method": "GET", "url": { "raw": "{{baseUrl}}/api/v1/service-health", "host": ["{{baseUrl}}"], "path": ["api","v1","service-health"] } }
+        },
+        {
+          "name": "Watchdog Status",
+          "request": { "method": "GET", "url": { "raw": "{{baseUrl}}/api/v1/watchdog/status", "host": ["{{baseUrl}}"], "path": ["api","v1","watchdog","status"] } }
+        },
+        {
+          "name": "Watchdog Health Log",
+          "request": { "method": "GET", "url": { "raw": "{{baseUrl}}/api/v1/watchdog/health-log", "host": ["{{baseUrl}}"], "path": ["api","v1","watchdog","health-log"] } }
+        },
+        {
+          "name": "Application Logs (in-memory tail)",
+          "request": { "method": "GET", "url": { "raw": "{{baseUrl}}/api/v1/logs", "host": ["{{baseUrl}}"], "path": ["api","v1","logs"] } }
+        }
+      ]
+    },
+    {
+      "name": "08 Channel Config — SMTP / WhatsApp / Escalation (read-only)",
+      "description": "PUT endpoints for these three are intentionally left out of this validation collection. The platform sends real mail through the live Subex SMTP relay (see CLAUDE.md — no local mail catcher), so mutating SmtpConfig/WhatsAppConfig/EscalationConfig here risks changing live send behavior rather than just validating a code path. Exercise those PUTs manually and deliberately from the dashboard, not as part of an automated collection run.",
+      "item": [
+        {
+          "name": "Get SMTP Config",
+          "request": { "method": "GET", "url": { "raw": "{{baseUrl}}/api/v1/smtp-config", "host": ["{{baseUrl}}"], "path": ["api","v1","smtp-config"] } }
+        },
+        {
+          "name": "Get WhatsApp Config",
+          "request": { "method": "GET", "url": { "raw": "{{baseUrl}}/api/v1/whatsapp-config", "host": ["{{baseUrl}}"], "path": ["api","v1","whatsapp-config"] } }
+        },
+        {
+          "name": "Get Escalation Config",
+          "request": { "method": "GET", "url": { "raw": "{{baseUrl}}/api/v1/escalation-config", "host": ["{{baseUrl}}"], "path": ["api","v1","escalation-config"] } }
+        }
+      ]
+    },
+    {
+      "name": "09 Attachment Upload (manual — attach a file before sending)",
+      "item": [
+        {
+          "name": "Upload Attachment",
+          "request": {
+            "method": "POST",
+            "url": { "raw": "{{baseUrl}}/api/v1/attachments", "host": ["{{baseUrl}}"], "path": ["api","v1","attachments"] },
+            "body": { "mode": "formdata", "formdata": [ { "key": "file", "type": "file", "src": [] } ] }
+          },
+          "description": "Postman can't embed binary file contents in a JSON collection export — open this request, go to Body, and pick a local file for the 'file' field before sending. Returns a path usable as attachmentReportIdentifier on a rule (attachmentType=UPLOAD)."
         }
       ]
     }
