@@ -11,7 +11,7 @@ const CHANNELS = ['EMAIL', 'WEBHOOK', 'SLACK', 'WHATSAPP', 'SMS'];
 const emptyForm = {
   code: '', displayName: '', description: '', enabled: true, approvalRequired: false,
   defaultChannel: 'EMAIL', icon: '', displayOrder: 0, roleRequired: '', formSchemaId: '',
-  attachmentSchemaId: '',
+  attachmentSchemaId: '', hypersenseExposed: false, contextResolverKey: '',
 };
 
 function toForm(a) {
@@ -22,6 +22,8 @@ function toForm(a) {
     displayOrder: a.displayOrder ?? 0, roleRequired: a.roleRequired || '',
     formSchemaId: a.formSchemaId ?? '',
     attachmentSchemaId: a.attachmentSchemaId ?? '',
+    hypersenseExposed: !!a.hypersenseExposed,
+    contextResolverKey: a.contextResolverKey || '',
   };
 }
 
@@ -38,6 +40,8 @@ function toPayload(form) {
     roleRequired: form.roleRequired || null,
     formSchemaId: form.formSchemaId === '' ? null : Number(form.formSchemaId),
     attachmentSchemaId: form.attachmentSchemaId === '' ? null : Number(form.attachmentSchemaId),
+    hypersenseExposed: form.hypersenseExposed,
+    contextResolverKey: form.contextResolverKey || null,
   };
 }
 
@@ -126,6 +130,7 @@ export default function NotificationActions() {
                     <StatusBadge enabled={a.enabled} />
                     <span className={`badge badge-${(a.defaultChannel || 'email').toLowerCase()}`}>{a.defaultChannel}</span>
                     {a.approvalRequired && <span className="badge badge-pending_review">Approval required</span>}
+                    {a.hypersenseExposed && <span className="badge badge-active">HyperSense</span>}
                   </div>
                 </div>
                 <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>#{a.displayOrder}</div>
@@ -174,6 +179,8 @@ export default function NotificationActions() {
                 <div className="drawer-row"><span className="drawer-key">Role Required</span><span className="drawer-val">{selected.roleRequired || '—'}</span></div>
                 <div className="drawer-row"><span className="drawer-key">Form Schema</span><span className="drawer-val">{selected.formSchemaId ? (schemaName(selected.formSchemaId) || `#${selected.formSchemaId}`) : '—'}</span></div>
                 <div className="drawer-row"><span className="drawer-key">Attachment Schema</span><span className="drawer-val">{selected.attachmentSchemaId ? (attachmentSchemaName(selected.attachmentSchemaId) || `#${selected.attachmentSchemaId}`) : '—'}</span></div>
+                <div className="drawer-row"><span className="drawer-key">HyperSense Exposed</span><span className="drawer-val">{selected.hypersenseExposed ? 'Yes' : 'No'}</span></div>
+                <div className="drawer-row"><span className="drawer-key">Context Resolver Key</span><span className="drawer-val">{selected.contextResolverKey || '—'}</span></div>
                 <div className="drawer-row"><span className="drawer-key">Created By</span><span className="drawer-val">{selected.createdBy}</span></div>
               </div>
               <div className="drawer-section">
@@ -259,7 +266,14 @@ export default function NotificationActions() {
                   placeholder="e.g. MANAGER — not yet enforced (see RBAC phase)" />
               </div>
 
-              <div style={{ display: 'flex', gap: 24, marginBottom: 16 }}>
+              <div className="form-group mb-12">
+                <label className="form-label">Context Resolver Key (optional)</label>
+                <input className="input" value={editing.form.contextResolverKey}
+                  onChange={e => setEditing(s => ({ ...s, form: { ...s.form, contextResolverKey: e.target.value } }))}
+                  placeholder="e.g. CASE_OWNER_DEFAULTS — resolves ?caseId=X into schema defaults" />
+              </div>
+
+              <div style={{ display: 'flex', gap: 24, marginBottom: 8 }}>
                 <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', fontSize: 13 }}>
                   <span className="toggle">
                     <input type="checkbox" checked={editing.form.enabled}
@@ -276,6 +290,21 @@ export default function NotificationActions() {
                   </span>
                   Approval required
                 </label>
+              </div>
+
+              <div style={{ marginBottom: 16 }}>
+                <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', fontSize: 13 }}>
+                  <span className="toggle">
+                    <input type="checkbox" checked={editing.form.hypersenseExposed}
+                      onChange={e => setEditing(s => ({ ...s, form: { ...s.form, hypersenseExposed: e.target.checked } }))} />
+                    <span className="toggle-slider" />
+                  </span>
+                  HyperSense exposed
+                </label>
+                <div className="fs-11 text-muted" style={{ marginTop: 4 }}>
+                  Callable from HyperSense's Analyst Actions panel. Its linked form schema must have no conditional
+                  fields — HyperSense can't render conditional visibility, and the server will reject the save otherwise.
+                </div>
               </div>
 
               <button className="btn btn-primary" onClick={save}

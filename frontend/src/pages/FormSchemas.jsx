@@ -4,13 +4,14 @@ import { LayoutTemplate, X, Plus, Pencil, Trash2, CheckCircle, AlertTriangle, XC
 
 const FIELD_TYPES = ['TEXTBOX', 'TEXTAREA', 'DROPDOWN', 'CHECKBOX', 'RADIO', 'DATE', 'EMAIL', 'FILE_UPLOAD', 'DYNAMIC_LOOKUP'];
 const OPTION_TYPES = ['DROPDOWN', 'RADIO'];
+const HS_FIELD_TYPES = ['STRING', 'BOOLEAN', 'INTEGER', 'ARRAY', 'OBJECT'];
 
 let keySeq = 0;
 const nextKey = () => `f${Date.now()}_${keySeq++}`;
 
 function emptyField() {
   return {
-    _key: nextKey(), fieldKey: '', label: '', fieldType: 'TEXTBOX',
+    _key: nextKey(), fieldKey: '', label: '', fieldType: 'TEXTBOX', hsFieldType: '',
     placeholder: '', helpText: '', required: false, defaultValue: '',
     lookupSource: '', conditionalOnFieldKey: '', conditionalOnValue: '',
     maxLength: '', options: [],
@@ -22,7 +23,7 @@ function schemaToForm(schema) {
     name: schema.name, description: schema.description || '',
     fields: (schema.fields || []).map(f => ({
       _key: nextKey(),
-      fieldKey: f.fieldKey, label: f.label, fieldType: f.fieldType,
+      fieldKey: f.fieldKey, label: f.label, fieldType: f.fieldType, hsFieldType: f.hsFieldType || '',
       placeholder: f.placeholder || '', helpText: f.helpText || '',
       required: !!f.required, defaultValue: f.defaultValue || '',
       lookupSource: f.lookupSource || '',
@@ -42,7 +43,7 @@ function formToPayload(form) {
       if (f.maxLength) validations.push({ validationType: 'MAX_LENGTH', validationValue: String(f.maxLength), errorMessage: `Must be under ${f.maxLength} characters` });
       if (f.fieldType === 'EMAIL') validations.push({ validationType: 'EMAIL_FORMAT', errorMessage: 'Must be a valid email address' });
       return {
-        fieldKey: f.fieldKey, label: f.label, fieldType: f.fieldType,
+        fieldKey: f.fieldKey, label: f.label, fieldType: f.fieldType, hsFieldType: f.hsFieldType || null,
         placeholder: f.placeholder || null, helpText: f.helpText || null,
         required: f.required, displayOrder: i * 10,
         defaultValue: f.defaultValue || null,
@@ -211,6 +212,18 @@ export default function FormSchemas() {
                     <div className="form-group">
                       <label className="form-label">Placeholder</label>
                       <input className="input" value={f.placeholder} onChange={e => updateField(idx, { placeholder: e.target.value })} />
+                    </div>
+                  </div>
+
+                  <div className="form-group mb-8">
+                    <label className="form-label">HyperSense Type (optional)</label>
+                    <select className="select" value={f.hsFieldType} onChange={e => updateField(idx, { hsFieldType: e.target.value })}>
+                      <option value="">— not classified —</option>
+                      {HS_FIELD_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
+                    </select>
+                    <div className="fs-11 text-muted" style={{ marginTop: 4 }}>
+                      The primitive HyperSense's Analyst Actions panel actually renders this field as, if this
+                      schema is linked to a HyperSense-exposed action. Leave unclassified for wizard-only schemas.
                     </div>
                   </div>
 

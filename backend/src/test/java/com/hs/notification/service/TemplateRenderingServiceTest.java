@@ -138,6 +138,33 @@ class TemplateRenderingServiceTest {
         assertThat(result.body()).isEqualTo("<p>Body: 42</p>");
     }
 
+    // --- attachment-context PII masking ---
+
+    @Test
+    void maskPiiForAttachmentsMasksListedFields() {
+        NotificationTemplate template = templateWith("x", List.of(), List.of("account_number"));
+        Map<String, Object> masked = service.maskPiiForAttachments(template,
+                Map.of("account_number", "1234567890", "case_id", "42"));
+        assertThat(masked.get("account_number")).isEqualTo("******7890");
+        assertThat(masked.get("case_id")).isEqualTo("42"); // non-PII structural key untouched
+    }
+
+    @Test
+    void maskPiiForAttachmentsLeavesNonPiiKeysAndOriginalMapUntouched() {
+        NotificationTemplate template = templateWith("x", List.of(), List.of());
+        Map<String, Object> original = Map.of("case_id", "42", "catalog_id", "7");
+        Map<String, Object> masked = service.maskPiiForAttachments(template, original);
+        assertThat(masked).isEqualTo(original);
+    }
+
+    @Test
+    void maskPiiForAttachmentsHandlesMissingKeyGracefully() {
+        NotificationTemplate template = templateWith("x", List.of(), List.of("ssn"));
+        Map<String, Object> masked = service.maskPiiForAttachments(template, Map.of("case_id", "1"));
+        assertThat(masked).containsEntry("case_id", "1");
+        assertThat(masked).doesNotContainKey("ssn");
+    }
+
     // --- helpers ---
 
     private NotificationTemplate templateWith(String subject, List<String> allowed, List<String> pii) {

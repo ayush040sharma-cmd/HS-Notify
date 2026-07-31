@@ -17,6 +17,8 @@ public record NotificationActionResponse(
         String roleRequired,
         Long formSchemaId,
         Long attachmentSchemaId,
+        boolean hypersenseExposed,
+        String contextResolverKey,
         String createdBy,
         OffsetDateTime createdOn
 ) {
@@ -26,6 +28,7 @@ public record NotificationActionResponse(
                 a.isEnabled(), a.isApprovalRequired(), a.getDefaultChannel(),
                 a.getIcon(), a.getDisplayOrder(), a.getRoleRequired(),
                 a.getFormSchemaId(), a.getAttachmentSchemaId(),
+                a.isHypersenseExposed(), a.getContextResolverKey(),
                 a.getCreatedBy(), a.getCreatedOn());
     }
 }

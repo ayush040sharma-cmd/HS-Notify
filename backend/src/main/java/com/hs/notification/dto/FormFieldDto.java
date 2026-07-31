@@ -10,6 +10,7 @@ public record FormFieldDto(
         @NotBlank String fieldKey,
         @NotBlank String label,
         @NotBlank String fieldType,
+        String hsFieldType,
         String placeholder,
         String helpText,
         Boolean required,
@@ -23,7 +24,7 @@ public record FormFieldDto(
 ) {
     public static FormFieldDto from(FormField f) {
         return new FormFieldDto(
-                f.getId(), f.getFieldKey(), f.getLabel(), f.getFieldType(),
+                f.getId(), f.getFieldKey(), f.getLabel(), f.getFieldType(), f.getHsFieldType(),
                 f.getPlaceholder(), f.getHelpText(), f.isRequired(), f.getDisplayOrder(),
                 f.getDefaultValue(), f.getLookupSource(),
                 f.getConditionalOnFieldKey(), f.getConditionalOnValue(),

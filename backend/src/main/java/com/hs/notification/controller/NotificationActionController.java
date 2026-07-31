@@ -90,12 +90,16 @@ public class NotificationActionController {
                     "code", request.code()));
         }
 
+        NotificationAction action = new NotificationAction();
+        applyFields(action, request);
+        String exposureError = validateHypersenseExposure(action);
+        if (exposureError != null) {
+            return ResponseEntity.badRequest().body(Map.of("error", exposureError));
+        }
+
         Tenant tenant = resolveTenant(httpRequest);
         String actor = actorOf(httpRequest);
-
-        NotificationAction action = new NotificationAction();
         action.setCreatedBy(actor);
-        applyFields(action, request);
         action = actionRepository.save(action);
 
         auditService.log(tenant, null, null, "ACTION_CHANGED",
@@ -116,10 +120,14 @@ public class NotificationActionController {
                     "code", request.code()));
         }
 
+        applyFields(action, request);
+        String exposureError = validateHypersenseExposure(action);
+        if (exposureError != null) {
+            return ResponseEntity.badRequest().body(Map.of("error", exposureError));
+        }
+
         Tenant tenant = resolveTenant(httpRequest);
         String actor = actorOf(httpRequest);
-
-        applyFields(action, request);
         action = actionRepository.save(action);
 
         auditService.log(tenant, null, null, "ACTION_CHANGED",
@@ -155,6 +163,33 @@ public class NotificationActionController {
         action.setRoleRequired(request.roleRequired());
         action.setFormSchemaId(request.formSchemaId());
         action.setAttachmentSchemaId(request.attachmentSchemaId());
+        action.setHypersenseExposed(request.hypersenseExposed() != null && request.hypersenseExposed());
+        action.setContextResolverKey(request.contextResolverKey());
+    }
+
+    /**
+     * HyperSense's Analyst Actions panel cannot honor conditional field
+     * visibility (see HS_NOTIFICATION_V2_METADATA_DESIGN.md) — a
+     * hypersense_exposed action must therefore never point at a form_schema
+     * containing a conditional field, or the panel would just render every
+     * field flat regardless of the condition, silently breaking the intended
+     * behavior.
+     */
+    private String validateHypersenseExposure(NotificationAction action) {
+        if (!action.isHypersenseExposed() || action.getFormSchemaId() == null) {
+            return null;
+        }
+        FormSchema schema = formSchemaRepository.findById(action.getFormSchemaId()).orElse(null);
+        if (schema == null || schema.getFields() == null) {
+            return null;
+        }
+        boolean hasConditionalField = schema.getFields().stream()
+                .anyMatch(f -> f.getConditionalOnFieldKey() != null);
+        if (hasConditionalField) {
+            return "Form schema '" + schema.getName() + "' (id=" + schema.getId() + ") has conditional fields " +
+                    "and cannot be linked to a hypersense_exposed action — HyperSense cannot render conditional visibility";
+        }
+        return null;
     }
 
     private NotificationAction requireAction(Long id) {

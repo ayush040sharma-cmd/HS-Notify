@@ -3,6 +3,7 @@ package com.hs.notification.service;
 import com.hs.notification.model.NotificationTemplate;
 import org.springframework.stereotype.Service;
 
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.regex.Matcher;
@@ -56,6 +57,33 @@ public class TemplateRenderingService {
         }
         result.append(raw.substring(lastEnd));
         return result.toString();
+    }
+
+    /**
+     * Attachment providers read the raw context map directly (case_id,
+     * catalog_id, etc.), not through {{variable}} interpolation, so the
+     * allowed_variables whitelist above doesn't apply to them the same way —
+     * providers legitimately need structural lookup keys that were never
+     * meant to appear in a rendered message. pii_mask_fields still should
+     * apply, though: a field flagged as PII shouldn't reach attachment
+     * generation unmasked just because it arrived via a different code path
+     * than subject/body rendering. Returns a shallow copy; the original
+     * context (and any key not in pii_mask_fields) is untouched, so
+     * functional keys attachment providers rely on keep working.
+     */
+    public Map<String, Object> maskPiiForAttachments(NotificationTemplate template, Map<String, Object> context) {
+        List<String> maskFields = template.getPiiMaskFields() == null ? List.of() : template.getPiiMaskFields();
+        if (maskFields.isEmpty() || context == null || context.isEmpty()) {
+            return context;
+        }
+        Map<String, Object> masked = new HashMap<>(context);
+        for (String field : maskFields) {
+            Object value = masked.get(field);
+            if (value != null) {
+                masked.put(field, mask(value.toString()));
+            }
+        }
+        return masked;
     }
 
     private String mask(String value) {

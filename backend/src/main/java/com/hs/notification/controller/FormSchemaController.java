@@ -38,6 +38,10 @@ public class FormSchemaController {
     private static final Set<String> SUPPORTED_FIELD_TYPES = Set.of(
             "TEXTBOX", "TEXTAREA", "DROPDOWN", "CHECKBOX", "RADIO", "DATE", "EMAIL", "FILE_UPLOAD", "DYNAMIC_LOOKUP");
 
+    /** The 5 primitives HyperSense's Analyst Actions panel actually renders — see V15 migration comment. */
+    private static final Set<String> SUPPORTED_HS_FIELD_TYPES = Set.of(
+            "STRING", "BOOLEAN", "INTEGER", "ARRAY", "OBJECT");
+
     private final FormSchemaRepository formSchemaRepository;
     private final NotificationActionRepository actionRepository;
     private final AuditService auditService;
@@ -148,6 +152,7 @@ public class FormSchemaController {
             field.setFieldKey(dto.fieldKey());
             field.setLabel(dto.label());
             field.setFieldType(dto.fieldType());
+            field.setHsFieldType(dto.hsFieldType());
             field.setPlaceholder(dto.placeholder());
             field.setHelpText(dto.helpText());
             field.setRequired(dto.required() != null && dto.required());
@@ -193,6 +198,10 @@ public class FormSchemaController {
             if (!SUPPORTED_FIELD_TYPES.contains(field.fieldType())) {
                 return "Unsupported fieldType '" + field.fieldType() + "' for field '" + field.fieldKey() +
                         "' — must be one of " + SUPPORTED_FIELD_TYPES;
+            }
+            if (field.hsFieldType() != null && !SUPPORTED_HS_FIELD_TYPES.contains(field.hsFieldType())) {
+                return "Unsupported hsFieldType '" + field.hsFieldType() + "' for field '" + field.fieldKey() +
+                        "' — must be one of " + SUPPORTED_HS_FIELD_TYPES;
             }
         }
         return null;

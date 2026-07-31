@@ -27,6 +27,15 @@ public class FormField {
     @Column(name = "field_type", nullable = false)
     private String fieldType;
 
+    /**
+     * The down-leveled primitive HyperSense's Analyst Actions panel actually
+     * renders (STRING | BOOLEAN | INTEGER | ARRAY | OBJECT), independent of
+     * fieldType above. Nullable — only meaningful for fields on a form_schema
+     * linked to a hypersense_exposed notification_action.
+     */
+    @Column(name = "hs_field_type")
+    private String hsFieldType;
+
     @Column(name = "placeholder")
     private String placeholder;
 
@@ -71,6 +80,9 @@ public class FormField {
 
     public String getFieldType() { return fieldType; }
     public void setFieldType(String fieldType) { this.fieldType = fieldType; }
+
+    public String getHsFieldType() { return hsFieldType; }
+    public void setHsFieldType(String hsFieldType) { this.hsFieldType = hsFieldType; }
 
     public String getPlaceholder() { return placeholder; }
     public void setPlaceholder(String placeholder) { this.placeholder = placeholder; }

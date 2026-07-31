@@ -54,6 +54,25 @@ public class NotificationAction {
     @Column(name = "attachment_schema_id")
     private Long attachmentSchemaId;
 
+    /**
+     * True if this action is callable from HyperSense's Analyst Actions panel
+     * (must degrade gracefully — flat fields only, no conditionals), as
+     * opposed to an action reachable only from the internal dashboard
+     * wizard. Defaults false so every pre-existing action keeps behaving as
+     * it does today until explicitly opted in.
+     */
+    @Column(name = "hypersense_exposed", nullable = false)
+    private boolean hypersenseExposed = false;
+
+    /**
+     * Names a ContextResolver bean invoked by GET /api/v1/actions/{code}/schema
+     * ?caseId=X to merge resolved default values into the schema response
+     * before HyperSense renders it. Null means no resolver — static schema
+     * only, today's behavior.
+     */
+    @Column(name = "context_resolver_key")
+    private String contextResolverKey;
+
     @Column(name = "created_by", nullable = false)
     private String createdBy = "system";
 
@@ -95,6 +114,12 @@ public class NotificationAction {
 
     public Long getAttachmentSchemaId() { return attachmentSchemaId; }
     public void setAttachmentSchemaId(Long attachmentSchemaId) { this.attachmentSchemaId = attachmentSchemaId; }
+
+    public boolean isHypersenseExposed() { return hypersenseExposed; }
+    public void setHypersenseExposed(boolean hypersenseExposed) { this.hypersenseExposed = hypersenseExposed; }
+
+    public String getContextResolverKey() { return contextResolverKey; }
+    public void setContextResolverKey(String contextResolverKey) { this.contextResolverKey = contextResolverKey; }
 
     public String getCreatedBy() { return createdBy; }
     public void setCreatedBy(String createdBy) { this.createdBy = createdBy; }

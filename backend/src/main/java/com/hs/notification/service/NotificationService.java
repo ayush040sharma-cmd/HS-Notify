@@ -3,16 +3,19 @@ package com.hs.notification.service;
 import com.hs.notification.dto.NotifyRequest;
 import com.hs.notification.dto.SendCustomNotificationRequest;
 import com.hs.notification.exception.FeatureDisabledException;
+import com.hs.notification.exception.FormValidationException;
 import com.hs.notification.exception.RateLimitExceededException;
 import com.hs.notification.exception.RuleNotActiveException;
 import com.hs.notification.model.*;
 import com.hs.notification.repository.AppUserRepository;
+import com.hs.notification.repository.FormSchemaRepository;
 import com.hs.notification.repository.NotificationActionRepository;
 import com.hs.notification.repository.NotificationJobRepository;
 import com.hs.notification.repository.NotificationRuleRepository;
 import com.hs.notification.repository.NotificationTemplateRepository;
 import com.hs.notification.service.attachment.AttachmentOrchestrationService;
 import com.hs.notification.service.attachment.AttachmentStorageWriter;
+import com.hs.notification.service.directory.UserDirectoryResolver;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
@@ -38,7 +41,10 @@ public class NotificationService {
     private final NotificationJobRepository jobRepository;
     private final NotificationTemplateRepository templateRepository;
     private final NotificationActionRepository actionRepository;
+    private final FormSchemaRepository formSchemaRepository;
+    private final FormFieldValidationService formFieldValidationService;
     private final AppUserRepository appUserRepository;
+    private final UserDirectoryResolver userDirectoryResolver;
     private final TemplateRenderingService templateRenderingService;
     private final AttachmentService attachmentService;
     private final PrRecordsExportService prRecordsExportService;
@@ -54,7 +60,10 @@ public class NotificationService {
                                NotificationJobRepository jobRepository,
                                NotificationTemplateRepository templateRepository,
                                NotificationActionRepository actionRepository,
+                               FormSchemaRepository formSchemaRepository,
+                               FormFieldValidationService formFieldValidationService,
                                AppUserRepository appUserRepository,
+                               UserDirectoryResolver userDirectoryResolver,
                                TemplateRenderingService templateRenderingService,
                                AttachmentService attachmentService,
                                PrRecordsExportService prRecordsExportService,
@@ -69,7 +78,10 @@ public class NotificationService {
         this.jobRepository = jobRepository;
         this.templateRepository = templateRepository;
         this.actionRepository = actionRepository;
+        this.formSchemaRepository = formSchemaRepository;
+        this.formFieldValidationService = formFieldValidationService;
         this.appUserRepository = appUserRepository;
+        this.userDirectoryResolver = userDirectoryResolver;
         this.templateRenderingService = templateRenderingService;
         this.attachmentService = attachmentService;
         this.prRecordsExportService = prRecordsExportService;
@@ -258,6 +270,25 @@ public class NotificationService {
                 .filter(NotificationAction::isEnabled)
                 .orElseThrow(() -> new IllegalArgumentException("Unknown or disabled action: " + request.action()));
 
+        if (action.getFormSchemaId() != null) {
+            FormSchema formSchema = formSchemaRepository.findById(action.getFormSchemaId()).orElse(null);
+            // field_validation was previously client-side-only metadata, rendered by the
+            // dashboard wizard but never checked here — a caller that skips the wizard
+            // (a direct API call, or eventually HyperSense itself) could submit anything.
+            // formSchema == null just means a dangling reference; that's a config problem
+            // to fix in the admin UI, not a reason to reject every send against this action.
+            if (formSchema != null) {
+                List<FormFieldValidationService.ValidationError> errors =
+                        formFieldValidationService.validate(formSchema, request.payload());
+                if (!errors.isEmpty()) {
+                    String detail = errors.stream()
+                            .map(e -> e.fieldKey() + ": " + e.message())
+                            .collect(Collectors.joining("; "));
+                    throw new FormValidationException(detail);
+                }
+            }
+        }
+
         if (!featureToggleService.isNotificationsEnabled(tenant.getTenantId())) {
             throw new FeatureDisabledException("Notifications disabled for tenant " + tenant.getTenantCode());
         }
@@ -299,10 +330,12 @@ public class NotificationService {
 
         String finalSubject;
         String finalBody;
+        NotificationTemplate templateUsed = null;
         if (request.template() != null && !request.template().isBlank()) {
             NotificationTemplate template = templateRepository
                     .findByTenant_TenantIdAndTemplateCodeAndStatus(tenant.getTenantId(), request.template(), "ACTIVE")
                     .orElseThrow(() -> new IllegalArgumentException("Active template not found: " + request.template()));
+            templateUsed = template;
             if (request.comment() != null) {
                 effectiveContext.put("comment", request.comment());
             }
@@ -344,6 +377,15 @@ public class NotificationService {
         job.setStatus("PENDING");
         job.setAttachmentStatus("NOT_APPLICABLE");
 
+        // Attachment providers read the raw context map directly rather than through
+        // {{variable}} interpolation, so the template's allowed_variables whitelist
+        // doesn't apply the same way here — but pii_mask_fields still should: a field
+        // flagged as PII shouldn't reach attachment generation unmasked just because
+        // it arrived via a different code path than subject/body rendering.
+        Map<String, Object> attachmentContext = templateUsed != null
+                ? templateRenderingService.maskPiiForAttachments(templateUsed, effectiveContext)
+                : effectiveContext;
+
         List<String> notices = new ArrayList<>();
         String prRecordsFailureReason = null;
         if (request.attachmentPath() != null && !request.attachmentPath().isBlank()) {
@@ -353,7 +395,7 @@ public class NotificationService {
             // Phase 4: multi-provider path — takes priority over the legacy
             // includePrRecords boolean when providers is explicitly given.
             // Old callers never set this field, so their behavior is untouched.
-            var bundle = attachmentOrchestrationService.generateBundle(requestedProviders, tenant, effectiveContext);
+            var bundle = attachmentOrchestrationService.generateBundle(requestedProviders, tenant, attachmentContext);
             notices.addAll(bundle.notices());
             if (bundle.path() != null) {
                 job.setAttachmentPath(bundle.path());
@@ -363,7 +405,7 @@ public class NotificationService {
                 job.setLastError("No attachments could be generated: " + String.join("; ", bundle.notices()));
             }
         } else if (includePrRecords) {
-            prRecordsFailureReason = attachPrRecordsCsv(job, effectiveContext);
+            prRecordsFailureReason = attachPrRecordsCsv(job, attachmentContext);
             notices.add(prRecordsFailureReason == null
                     ? "PR records CSV attached."
                     : "PR records CSV not attached: " + prRecordsFailureReason);
@@ -463,7 +505,11 @@ public class NotificationService {
     /**
      * Resolution order for a CURRENT_USER rule:
      *  1. context.acting_user_email — caller already knows the acting user's email.
-     *  2. context.acting_username — looked up against app_user.email.
+     *  2. context.acting_username — looked up against app_user.email (our own
+     *     dashboard login table, for sends triggered from HS Notify's own
+     *     wizard), then against UserDirectoryResolver (HyperSense's directory
+     *     mirror, for usernames HyperSense itself would send — see
+     *     HS_NOTIFICATION_V2_METADATA_DESIGN.md).
      *  3. context.case_owner_email — for paths with no acting user (e.g. the
      *     case-watch scheduler); populated by whatever polls case_tbl once a
      *     real owner/assigned-analyst column is known there.
@@ -478,11 +524,17 @@ public class NotificationService {
 
         Object actingUsername = context.get("acting_username");
         if (actingUsername != null && !actingUsername.toString().isBlank()) {
-            Optional<AppUser> user = appUserRepository.findByUsername(actingUsername.toString());
+            String username = actingUsername.toString();
+            Optional<AppUser> user = appUserRepository.findByUsername(username);
             if (user.isPresent() && user.get().getEmail() != null && !user.get().getEmail().isBlank()) {
                 return List.of(user.get().getEmail());
             }
-            log.warn("CURRENT_USER recipient: acting_username={} has no resolvable email, falling through", actingUsername);
+            Optional<String> directoryEmail = userDirectoryResolver.resolveEmail(username);
+            if (directoryEmail.isPresent()) {
+                return List.of(directoryEmail.get());
+            }
+            log.warn("CURRENT_USER recipient: acting_username={} has no resolvable email in app_user or " +
+                    "the user directory, falling through", username);
         }
 
         Object caseOwnerEmail = context.get("case_owner_email");

@@ -158,6 +158,18 @@ hs-notification:
     password: ${CASE_TBL_DB_PASSWORD:}
     connect-timeout-ms: 5000
     socket-timeout-seconds: 20
+  user-directory-datasource:
+    # CHANGEME — real host/db/credentials for appmonitoringmetricservice.users,
+    # the SQL-queryable HyperSense username->email directory mirror (see
+    # HS_NOTIFICATION_V2_METADATA_DESIGN.md — "Internal user/email directory").
+    # Same shared analytics cluster as case-tbl-datasource above, different
+    # database. UserDirectoryResolver treats a blank url/username as "not
+    # configured" and every caller falls back to its next resolution tier.
+    url: ${USER_DIRECTORY_DB_URL:}
+    username: ${USER_DIRECTORY_DB_USERNAME:}
+    password: ${USER_DIRECTORY_DB_PASSWORD:}
+    connect-timeout-ms: 5000
+    socket-timeout-seconds: 20
   watchdog:
     enabled: true
     self-check-url: http://localhost:${server.port}/actuator/health

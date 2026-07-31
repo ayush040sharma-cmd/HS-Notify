@@ -5,6 +5,7 @@ import com.hs.notification.model.Tenant;
 import com.hs.notification.repository.CaseWatchCheckpointRepository;
 import com.hs.notification.repository.TenantRepository;
 import com.hs.notification.service.NotificationService;
+import com.hs.notification.service.directory.UserDirectoryResolver;
 import com.zaxxer.hikari.HikariConfig;
 import com.zaxxer.hikari.HikariDataSource;
 import jakarta.annotation.PreDestroy;
@@ -54,11 +55,13 @@ public class CaseWatchScheduler {
     private final TenantRepository tenantRepository;
     private final CaseWatchCheckpointRepository checkpointRepository;
     private final NotificationService notificationService;
+    private final UserDirectoryResolver userDirectoryResolver;
 
     public CaseWatchScheduler(
             TenantRepository tenantRepository,
             CaseWatchCheckpointRepository checkpointRepository,
             NotificationService notificationService,
+            UserDirectoryResolver userDirectoryResolver,
             @Value("${hs-notification.case-watch.enabled:false}") boolean enabled,
             @Value("${hs-notification.case-watch.tenant-code:}") String tenantCode,
             @Value("${hs-notification.case-watch.owner-email-domain:}") String ownerEmailDomain,
@@ -71,6 +74,7 @@ public class CaseWatchScheduler {
         this.tenantRepository = tenantRepository;
         this.checkpointRepository = checkpointRepository;
         this.notificationService = notificationService;
+        this.userDirectoryResolver = userDirectoryResolver;
         this.enabled = enabled;
         this.tenantCode = tenantCode;
         this.ownerEmailDomain = ownerEmailDomain;
@@ -143,11 +147,14 @@ public class CaseWatchScheduler {
         long highestSeen = lastSeenCaseId;
 
         // current_assigned_user is a HyperSense username (e.g. "ayush.sharma"), not an
-        // email — case_owner_email is derived by appending owner-email-domain when
-        // configured. That's the key NotificationService.resolveCurrentUserRecipient
+        // email — case_owner_email is resolved via UserDirectoryResolver first (the
+        // real appmonitoringmetricservice.users mirror, see
+        // HS_NOTIFICATION_V2_METADATA_DESIGN.md), falling back to the
+        // owner-email-domain guess only when the directory doesn't have that
+        // username. That's the key NotificationService.resolveCurrentUserRecipient
         // reads as the fallback for CURRENT_USER rules on this no-acting-user
-        // (scheduler) path; left unset (falls through to the next tier) when either
-        // the column is null or owner-email-domain isn't configured.
+        // (scheduler) path; left unset (falls through to the next tier) when neither
+        // resolves.
         String sql = "SELECT id, case_template_name, pipeline_names, grouped_entity_key, " +
                 "grouped_entity_value, severity, created_at, current_assigned_user FROM case_tbl WHERE id > ? ORDER BY id ASC";
 
@@ -171,8 +178,13 @@ public class CaseWatchScheduler {
                     }
 
                     String assignedUser = rs.getString("current_assigned_user");
-                    if (assignedUser != null && !assignedUser.isBlank() && ownerEmailDomain != null && !ownerEmailDomain.isBlank()) {
-                        context.put("case_owner_email", assignedUser + "@" + ownerEmailDomain);
+                    if (assignedUser != null && !assignedUser.isBlank()) {
+                        Optional<String> directoryEmail = userDirectoryResolver.resolveEmail(assignedUser);
+                        if (directoryEmail.isPresent()) {
+                            context.put("case_owner_email", directoryEmail.get());
+                        } else if (ownerEmailDomain != null && !ownerEmailDomain.isBlank()) {
+                            context.put("case_owner_email", assignedUser + "@" + ownerEmailDomain);
+                        }
                     }
 
                     try {

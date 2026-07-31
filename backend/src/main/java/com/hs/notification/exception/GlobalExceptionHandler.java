@@ -37,6 +37,11 @@ public class GlobalExceptionHandler {
         return body(HttpStatus.NOT_FOUND, "TENANT_NOT_FOUND", e.getMessage());
     }
 
+    @ExceptionHandler(FormValidationException.class)
+    public ResponseEntity<Object> handleFormValidation(FormValidationException e) {
+        return body(HttpStatus.BAD_REQUEST, "FORM_VALIDATION_ERROR", e.getMessage());
+    }
+
     @ExceptionHandler(IllegalArgumentException.class)
     public ResponseEntity<Object> handleIllegalArgument(IllegalArgumentException e) {
         return body(HttpStatus.BAD_REQUEST, "BAD_REQUEST", e.getMessage());

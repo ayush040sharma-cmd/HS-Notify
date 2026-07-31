@@ -13,5 +13,7 @@ public record UpsertNotificationActionRequest(
         Integer displayOrder,
         String roleRequired,
         Long formSchemaId,
-        Long attachmentSchemaId
+        Long attachmentSchemaId,
+        Boolean hypersenseExposed,
+        String contextResolverKey
 ) {}
