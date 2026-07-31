@@ -2,6 +2,11 @@ import axios from 'axios';
 import { mockApi } from './mockData.js';
 
 const API_KEY = import.meta.env.VITE_API_KEY || 'dev-local-key-change-me';
+// Shared secret required by LookupTokenFilter on GET /actions and
+// /actions/{code}/schema (see SecurityConfig) — the dashboard is an
+// authenticated caller too, but that filter runs before JWT/API-key
+// resolution, so it must be sent like any other static header.
+const LOOKUP_TOKEN = import.meta.env.VITE_LOOKUP_TOKEN || 'changeme-lookup-token';
 const MOCK = import.meta.env.VITE_MOCK === 'true';
 const TOKEN_KEY = 'hs_admin_token';
 
@@ -9,6 +14,7 @@ const client = axios.create({
   baseURL: '/api/v1',
   headers: {
     'X-HS-API-Key': API_KEY,
+    'X-HS-Lookup-Token': LOOKUP_TOKEN,
     'Content-Type': 'application/json'
   }
 });
