@@ -88,6 +88,69 @@ class NotifyEngineTest {
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
     }
 
+    // --- Object Registry auto-routing (V16__notification_object_registry) ---
+
+    @Test
+    void notifyWithSourceTypeCaseAutoRoutesToEvidenceProvider() {
+        Map<String, Object> body = Map.of(
+                "action", "CASE_SUMMARY",
+                "recipients", Map.of("to", List.of("ops@example.com")),
+                "subject", "object registry auto-route test",
+                "sourceType", "CASE",
+                "payload", Map.of("case_id", "12345")
+        );
+        ResponseEntity<Map> response = restTemplate.exchange(
+                "/api/v1/notify", HttpMethod.POST, new HttpEntity<>(body, apiKeyHeaders()), Map.class);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+        Map<String, Object> job = (Map<String, Object>) response.getBody().get("job");
+        // case-tbl-datasource isn't configured in this test environment, so EVIDENCE
+        // fails gracefully — but reaching FAILED (not NOT_APPLICABLE) proves the
+        // registry resolved sourceType=CASE -> EVIDENCE and actually tried.
+        assertThat(job.get("attachmentStatus")).isEqualTo("FAILED");
+        List<String> notices = (List<String>) response.getBody().get("notices");
+        assertThat(notices).anyMatch(n -> n.contains("EVIDENCE"));
+    }
+
+    @Test
+    void notifyWithSourceTypePrAutoRoutesToPrRecordsProvider() {
+        Map<String, Object> body = Map.of(
+                "action", "CASE_SUMMARY",
+                "recipients", Map.of("to", List.of("ops@example.com")),
+                "subject", "object registry auto-route test",
+                "sourceType", "PR",
+                "payload", Map.of("case_id", "12345", "catalog_id", "7")
+        );
+        ResponseEntity<Map> response = restTemplate.exchange(
+                "/api/v1/notify", HttpMethod.POST, new HttpEntity<>(body, apiKeyHeaders()), Map.class);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+        Map<String, Object> job = (Map<String, Object>) response.getBody().get("job");
+        // usage-datasource isn't configured in this test environment either — same
+        // graceful-failure proof that PR -> PR_RECORDS was actually resolved and tried.
+        assertThat(job.get("attachmentStatus")).isEqualTo("FAILED");
+        List<String> notices = (List<String>) response.getBody().get("notices");
+        assertThat(notices).anyMatch(n -> n.contains("PR_RECORDS"));
+    }
+
+    @Test
+    void notifyWithUnregisteredSourceTypeNeverAutoRoutes() {
+        Map<String, Object> body = Map.of(
+                "action", "CASE_SUMMARY",
+                "recipients", Map.of("to", List.of("ops@example.com")),
+                "subject", "object registry no-match test",
+                // Real-world descriptive sourceType, not a bare registry object_type —
+                // must NOT fuzzy-match "CASE" and auto-route.
+                "sourceType", "CASE_ESCALATION"
+        );
+        ResponseEntity<Map> response = restTemplate.exchange(
+                "/api/v1/notify", HttpMethod.POST, new HttpEntity<>(body, apiKeyHeaders()), Map.class);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+        Map<String, Object> job = (Map<String, Object>) response.getBody().get("job");
+        assertThat(job.get("attachmentStatus")).isEqualTo("NOT_APPLICABLE");
+    }
+
     // --- backward compatibility: legacy endpoints keep their existing contracts ---
 
     @Test

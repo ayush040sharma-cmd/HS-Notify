@@ -49,6 +49,7 @@ public class NotificationService {
     private final AttachmentService attachmentService;
     private final PrRecordsExportService prRecordsExportService;
     private final AttachmentOrchestrationService attachmentOrchestrationService;
+    private final ObjectRegistryResolver objectRegistryResolver;
     private final AttachmentStorageWriter attachmentStorageWriter;
     private final MailDispatchService mailDispatchService;
     private final AuditService auditService;
@@ -68,6 +69,7 @@ public class NotificationService {
                                AttachmentService attachmentService,
                                PrRecordsExportService prRecordsExportService,
                                AttachmentOrchestrationService attachmentOrchestrationService,
+                               ObjectRegistryResolver objectRegistryResolver,
                                AttachmentStorageWriter attachmentStorageWriter,
                                MailDispatchService mailDispatchService,
                                AuditService auditService,
@@ -86,6 +88,7 @@ public class NotificationService {
         this.attachmentService = attachmentService;
         this.prRecordsExportService = prRecordsExportService;
         this.attachmentOrchestrationService = attachmentOrchestrationService;
+        this.objectRegistryResolver = objectRegistryResolver;
         this.attachmentStorageWriter = attachmentStorageWriter;
         this.mailDispatchService = mailDispatchService;
         this.auditService = auditService;
@@ -409,6 +412,23 @@ public class NotificationService {
             notices.add(prRecordsFailureReason == null
                     ? "PR records CSV attached."
                     : "PR records CSV not attached: " + prRecordsFailureReason);
+        } else {
+            // Object Registry auto-routing (V16__notification_object_registry):
+            // only reached when the caller didn't already say what to attach.
+            // Exact-match on sourceType against notification_object_registry —
+            // see ObjectRegistryResolver for why this never guesses.
+            Optional<String> autoProviderKey = objectRegistryResolver.resolveAttachmentProviderKey(request.sourceType());
+            if (autoProviderKey.isPresent()) {
+                var bundle = attachmentOrchestrationService.generateBundle(List.of(autoProviderKey.get()), tenant, attachmentContext);
+                notices.addAll(bundle.notices());
+                if (bundle.path() != null) {
+                    job.setAttachmentPath(bundle.path());
+                    job.setAttachmentStatus("GENERATED");
+                } else {
+                    job.setAttachmentStatus("FAILED");
+                    job.setLastError("No attachments could be generated: " + String.join("; ", bundle.notices()));
+                }
+            }
         }
         if (includeAttachment) {
             notices.add("includeAttachment was set, but attachment generation (e.g. dashboard snapshot) isn't wired yet — no attachment was generated for this send.");
