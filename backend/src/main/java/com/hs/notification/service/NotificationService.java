@@ -118,6 +118,10 @@ public class NotificationService {
         return caseLinkBaseUrl + "/" + caseId;
     }
 
+    private static String asString(Object o) {
+        return (o == null || o.toString().isBlank()) ? null : o.toString();
+    }
+
     @Transactional
     public NotificationJob submitRuleBasedNotification(Tenant tenant, String ruleCode,
                                                          String idempotencyKey,
@@ -273,6 +277,34 @@ public class NotificationService {
                 .filter(NotificationAction::isEnabled)
                 .orElseThrow(() -> new IllegalArgumentException("Unknown or disabled action: " + request.action()));
 
+        // --- Normalize flat vs nested field namespaces ------------------------------
+        // A caller may supply subject/recipient either at the top level (direct-API
+        // style) or inside payload under the form-field keys "subject"/"to_address"
+        // (HyperSense/PAS flat-field style). Bridge BOTH directions once here so the
+        // caller only has to provide each value in one place.
+        Map<String, Object> payload = new HashMap<>(request.payload() == null ? Map.of() : request.payload());
+
+        // top-level -> payload (so a top-level-only caller still passes form validation)
+        if (asString(request.subject()) != null) {
+            payload.putIfAbsent("subject", request.subject());
+        }
+        if (request.recipients() != null && request.recipients().to() != null
+                && !request.recipients().to().isEmpty()) {
+            payload.putIfAbsent("to_address", request.recipients().to().get(0));
+        }
+
+        // payload -> top-level (so a payload-only caller still passes the send checks)
+        String effectiveSubject = asString(request.subject()) != null
+                ? request.subject()
+                : asString(payload.get("subject"));
+        List<String> effectiveTo = (request.recipients() != null && request.recipients().to() != null
+                && !request.recipients().to().isEmpty())
+                ? request.recipients().to()
+                : (asString(payload.get("to_address")) != null
+                    ? List.of(asString(payload.get("to_address")))
+                    : List.of());
+        // ---------------------------------------------------------------------------
+
         if (action.getFormSchemaId() != null) {
             FormSchema formSchema = formSchemaRepository.findById(action.getFormSchemaId()).orElse(null);
             // field_validation was previously client-side-only metadata, rendered by the
@@ -282,7 +314,7 @@ public class NotificationService {
             // to fix in the admin UI, not a reason to reject every send against this action.
             if (formSchema != null) {
                 List<FormFieldValidationService.ValidationError> errors =
-                        formFieldValidationService.validate(formSchema, request.payload());
+                        formFieldValidationService.validate(formSchema, payload);
                 if (!errors.isEmpty()) {
                     String detail = errors.stream()
                             .map(e -> e.fieldKey() + ": " + e.message())
@@ -306,17 +338,16 @@ public class NotificationService {
             }
         }
 
-        List<String> to = request.recipients() != null && request.recipients().to() != null
-                ? request.recipients().to() : List.of();
+        List<String> to = effectiveTo;
         if (to.isEmpty()) {
-            throw new IllegalArgumentException("recipients.to is required for action " + action.getCode());
+            throw new IllegalArgumentException("recipients.to (or payload.to_address) is required for action " + action.getCode());
         }
         List<String> cc = request.recipients() != null && request.recipients().cc() != null
                 ? request.recipients().cc() : List.of();
         List<String> bcc = request.recipients() != null && request.recipients().bcc() != null
                 ? request.recipients().bcc() : List.of();
 
-        Map<String, Object> effectiveContext = new HashMap<>(request.payload() == null ? Map.of() : request.payload());
+        Map<String, Object> effectiveContext = new HashMap<>(payload);
         NotifyRequest.AttachmentOptions opts = request.attachmentOptions();
         boolean includeCaseLink = opts != null && Boolean.TRUE.equals(opts.includeCaseLink());
         boolean includePrRecords = opts != null && Boolean.TRUE.equals(opts.includePrRecords());
@@ -347,16 +378,16 @@ public class NotificationService {
             finalSubject = rendered.subject();
             finalBody = rendered.body();
         } else if (request.body() != null && !request.body().isBlank()) {
-            finalSubject = request.subject();
+            finalSubject = effectiveSubject;
             finalBody = request.body();
             if (finalSubject == null || finalSubject.isBlank() || finalBody == null || finalBody.isBlank()) {
                 throw new IllegalArgumentException("Either template or both subject and body are required");
             }
         } else {
-            if (request.subject() == null || request.subject().isBlank()) {
-                throw new IllegalArgumentException("subject is required");
+            if (effectiveSubject == null || effectiveSubject.isBlank()) {
+                throw new IllegalArgumentException("subject (or payload.subject) is required");
             }
-            finalSubject = request.subject();
+            finalSubject = effectiveSubject;
             StringBuilder body = new StringBuilder();
             if (request.comment() != null && !request.comment().isBlank()) {
                 body.append("<p>").append(escapeHtml(request.comment())).append("</p>");
