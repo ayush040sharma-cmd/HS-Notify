@@ -8,6 +8,7 @@ import com.hs.notification.exception.RateLimitExceededException;
 import com.hs.notification.exception.RuleNotActiveException;
 import com.hs.notification.model.*;
 import com.hs.notification.repository.AppUserRepository;
+import com.hs.notification.repository.AttachmentSchemaRepository;
 import com.hs.notification.repository.FormSchemaRepository;
 import com.hs.notification.repository.NotificationActionRepository;
 import com.hs.notification.repository.NotificationJobRepository;
@@ -25,6 +26,7 @@ import org.springframework.transaction.annotation.Transactional;
 import java.io.IOException;
 import java.time.OffsetDateTime;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -50,6 +52,7 @@ public class NotificationService {
     private final PrRecordsExportService prRecordsExportService;
     private final AttachmentOrchestrationService attachmentOrchestrationService;
     private final ObjectRegistryResolver objectRegistryResolver;
+    private final AttachmentSchemaRepository attachmentSchemaRepository;
     private final AttachmentStorageWriter attachmentStorageWriter;
     private final MailDispatchService mailDispatchService;
     private final AuditService auditService;
@@ -70,6 +73,7 @@ public class NotificationService {
                                PrRecordsExportService prRecordsExportService,
                                AttachmentOrchestrationService attachmentOrchestrationService,
                                ObjectRegistryResolver objectRegistryResolver,
+                               AttachmentSchemaRepository attachmentSchemaRepository,
                                AttachmentStorageWriter attachmentStorageWriter,
                                MailDispatchService mailDispatchService,
                                AuditService auditService,
@@ -89,6 +93,7 @@ public class NotificationService {
         this.prRecordsExportService = prRecordsExportService;
         this.attachmentOrchestrationService = attachmentOrchestrationService;
         this.objectRegistryResolver = objectRegistryResolver;
+        this.attachmentSchemaRepository = attachmentSchemaRepository;
         this.attachmentStorageWriter = attachmentStorageWriter;
         this.mailDispatchService = mailDispatchService;
         this.auditService = auditService;
@@ -443,14 +448,15 @@ public class NotificationService {
             notices.add(prRecordsFailureReason == null
                     ? "PR records CSV attached."
                     : "PR records CSV not attached: " + prRecordsFailureReason);
-        } else {
-            // Object Registry auto-routing (V16__notification_object_registry):
-            // only reached when the caller didn't already say what to attach.
-            // Exact-match on sourceType against notification_object_registry —
-            // see ObjectRegistryResolver for why this never guesses.
-            Optional<String> autoProviderKey = objectRegistryResolver.resolveAttachmentProviderKey(request.sourceType());
-            if (autoProviderKey.isPresent()) {
-                var bundle = attachmentOrchestrationService.generateBundle(List.of(autoProviderKey.get()), tenant, attachmentContext);
+        } else if (includeAttachment && action.getAttachmentSchemaId() != null) {
+            // includeAttachment means "attach whatever this action's linked
+            // attachment_schema says" — an ordered bundle of provider keys
+            // (see attachment_schema_provider / V13 migration), not a single
+            // hardcoded provider. PR_CLOSE's schema, for example, bundles
+            // both PR_RECORDS and EXCEL_EXPORT.
+            List<String> schemaProviderKeys = resolveSchemaProviderKeys(action.getAttachmentSchemaId());
+            if (!schemaProviderKeys.isEmpty()) {
+                var bundle = attachmentOrchestrationService.generateBundle(schemaProviderKeys, tenant, attachmentContext);
                 notices.addAll(bundle.notices());
                 if (bundle.path() != null) {
                     job.setAttachmentPath(bundle.path());
@@ -460,9 +466,13 @@ public class NotificationService {
                     job.setLastError("No attachments could be generated: " + String.join("; ", bundle.notices()));
                 }
             }
-        }
-        if (includeAttachment) {
-            notices.add("includeAttachment was set, but attachment generation (e.g. dashboard snapshot) isn't wired yet — no attachment was generated for this send.");
+        } else {
+            // No explicit provider list and no attachment_schema on this action
+            // (includeAttachment may still be true here) — fall back to Object
+            // Registry auto-routing (V16__notification_object_registry).
+            // Exact-match on sourceType against notification_object_registry —
+            // see ObjectRegistryResolver for why this never guesses.
+            tryObjectRegistryAutoRoute(job, tenant, request.sourceType(), attachmentContext, notices);
         }
 
         job = jobRepository.save(job);
@@ -516,6 +526,40 @@ public class NotificationService {
 
     private String writeToAttachmentStorage(byte[] content, String displayName) throws IOException {
         return attachmentStorageWriter.write(content, displayName);
+    }
+
+    /** Ordered provider_key list for an attachment_schema — same sort/map AttachmentSchemaResponse uses. */
+    private List<String> resolveSchemaProviderKeys(Long attachmentSchemaId) {
+        AttachmentSchema schema = attachmentSchemaRepository.findById(attachmentSchemaId).orElse(null);
+        if (schema == null || schema.getProviders() == null) {
+            return List.of();
+        }
+        return schema.getProviders().stream()
+                .sorted(Comparator.comparingInt(AttachmentSchemaProvider::getDisplayOrder))
+                .map(AttachmentSchemaProvider::getProviderKey)
+                .toList();
+    }
+
+    /**
+     * Shared by the includeAttachment fallback (action has no attachment_schema)
+     * and the default path (includeAttachment not set at all) — only reached
+     * when the caller didn't already say what to attach.
+     */
+    private void tryObjectRegistryAutoRoute(NotificationJob job, Tenant tenant, String sourceType,
+                                             Map<String, Object> attachmentContext, List<String> notices) {
+        Optional<String> autoProviderKey = objectRegistryResolver.resolveAttachmentProviderKey(sourceType);
+        if (autoProviderKey.isEmpty()) {
+            return;
+        }
+        var bundle = attachmentOrchestrationService.generateBundle(List.of(autoProviderKey.get()), tenant, attachmentContext);
+        notices.addAll(bundle.notices());
+        if (bundle.path() != null) {
+            job.setAttachmentPath(bundle.path());
+            job.setAttachmentStatus("GENERATED");
+        } else {
+            job.setAttachmentStatus("FAILED");
+            job.setLastError("No attachments could be generated: " + String.join("; ", bundle.notices()));
+        }
     }
 
     private String escapeHtml(String input) {

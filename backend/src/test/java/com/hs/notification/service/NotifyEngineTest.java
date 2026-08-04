@@ -151,6 +151,35 @@ class NotifyEngineTest {
         assertThat(job.get("attachmentStatus")).isEqualTo("NOT_APPLICABLE");
     }
 
+    // --- Attachment Schema bundling (V13__attachment_provider_pattern) ---
+
+    @Test
+    void notifyWithIncludeAttachmentBundlesAllSchemaProviders() {
+        // PR_CLOSE is linked to attachment_schema id=1 ("PR Records Bundle"),
+        // whose ordered provider list is [PR_RECORDS, EXCEL_EXPORT] — proves
+        // includeAttachment resolves the whole schema, not one hardcoded key.
+        Map<String, Object> body = Map.of(
+                "action", "PR_CLOSE",
+                "recipients", Map.of("to", List.of("ops@example.com")),
+                "subject", "attachment schema bundle test",
+                "attachmentOptions", Map.of("includeAttachment", true),
+                "payload", Map.of("case_id", "12345", "catalog_id", "7")
+        );
+        ResponseEntity<Map> response = restTemplate.exchange(
+                "/api/v1/notify", HttpMethod.POST, new HttpEntity<>(body, apiKeyHeaders()), Map.class);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+        Map<String, Object> job = (Map<String, Object>) response.getBody().get("job");
+        // usage-datasource isn't configured in this test environment, so both
+        // providers fail gracefully — but both notices appearing (not just one)
+        // proves the schema's full ordered provider list was resolved and tried,
+        // not a single hardcoded provider.
+        assertThat(job.get("attachmentStatus")).isEqualTo("FAILED");
+        List<String> notices = (List<String>) response.getBody().get("notices");
+        assertThat(notices).anyMatch(n -> n.contains("PR_RECORDS"));
+        assertThat(notices).anyMatch(n -> n.contains("EXCEL_EXPORT"));
+    }
+
     // --- backward compatibility: legacy endpoints keep their existing contracts ---
 
     @Test
