@@ -247,6 +247,54 @@ class NotifyEngineTest {
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
     }
 
+    // --- Bug fix: recipient resolution must run before form validation, not after ---
+    // (FRAUD_ALERT is linked to form_schema id=1, whose to_address field has an
+    // EMAIL_FORMAT rule — this is the exact schema that previously rejected
+    // "group:FRAUD_OPS_TEAM" and bare usernames as invalid emails.)
+
+    @Test
+    void notifyWithGroupReferenceOnFormValidatedActionResolvesInsteadOfFailingValidation() {
+        Map<String, Object> body = Map.of(
+                "action", "FRAUD_ALERT",
+                "sourceType", "NA",
+                "payload", Map.of(
+                        "to_address", "group:FRAUD_OPS_TEAM",
+                        "subject", "form-validated group recipient test",
+                        "priority", "HIGH",
+                        "severity", "HIGH")
+        );
+        ResponseEntity<Map> response = restTemplate.exchange(
+                "/api/v1/notify", HttpMethod.POST, new HttpEntity<>(body, apiKeyHeaders()), Map.class);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+        Map<String, Object> job = (Map<String, Object>) response.getBody().get("job");
+        assertThat((List<String>) job.get("toAddresses"))
+                .containsExactlyInAnyOrder("fraud-ops@zain.example.com", "fraud-ops-lead@zain.example.com");
+    }
+
+    @Test
+    void notifyWithUnresolvableUsernameOnFormValidatedActionFailsAsRecipientErrorNotFormError() {
+        Map<String, Object> body = Map.of(
+                "action", "FRAUD_ALERT",
+                "sourceType", "NA",
+                "payload", Map.of(
+                        "to_address", "not.a.real.user",
+                        "subject", "form-validated unresolvable username test",
+                        "priority", "HIGH",
+                        "severity", "HIGH")
+        );
+        ResponseEntity<Map> response = restTemplate.exchange(
+                "/api/v1/notify", HttpMethod.POST, new HttpEntity<>(body, apiKeyHeaders()), Map.class);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+        // Must fail via recipient resolution (BAD_REQUEST from the plain
+        // IllegalArgumentException resolveRecipientTokens throws), NOT via
+        // FORM_VALIDATION_ERROR — proving resolution ran before, not after,
+        // form validation saw the raw "not.a.real.user" token.
+        assertThat(response.getBody().get("error")).isEqualTo("BAD_REQUEST");
+        assertThat((String) response.getBody().get("message")).contains("not.a.real.user");
+    }
+
     // --- backward compatibility: legacy endpoints keep their existing contracts ---
 
     @Test

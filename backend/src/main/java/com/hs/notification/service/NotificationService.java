@@ -318,6 +318,32 @@ public class NotificationService {
                     : List.of());
         // ---------------------------------------------------------------------------
 
+        // Recipient resolution (group:CODE / bare username / literal email) must
+        // run BEFORE form validation — validation checks payload.to_address against
+        // an email-pattern rule, so it needs to see the resolved address, not a
+        // caller-supplied "group:FRAUD_OPS_TEAM" or "ayush.sharma" token.
+        List<String> rawCc = request.recipients() != null && request.recipients().cc() != null
+                ? request.recipients().cc() : List.of();
+        List<String> rawBcc = request.recipients() != null && request.recipients().bcc() != null
+                ? request.recipients().bcc() : List.of();
+
+        List<String> to = resolveRecipientTokens(tenant, effectiveTo);
+        if (to.isEmpty()) {
+            throw new IllegalArgumentException("recipients.to (or payload.to_address) is required for action " + action.getCode());
+        }
+        List<String> cc = resolveRecipientTokens(tenant, rawCc);
+        List<String> bcc = resolveRecipientTokens(tenant, rawBcc);
+
+        // Audit-trail only — never gates the send, see RecipientClassifier.
+        to.forEach(email -> recipientClassifier.classifyAndLog(tenant, action.getCode(), "TO", email));
+        cc.forEach(email -> recipientClassifier.classifyAndLog(tenant, action.getCode(), "CC", email));
+        bcc.forEach(email -> recipientClassifier.classifyAndLog(tenant, action.getCode(), "BCC", email));
+
+        // Replace payload.to_address (possibly still a group:/username token from
+        // the namespace-bridging block above) with the real resolved address, so
+        // form validation and effectiveContext both see what's actually being sent.
+        payload.put("to_address", to.get(0));
+
         if (action.getFormSchemaId() != null) {
             FormSchema formSchema = formSchemaRepository.findById(action.getFormSchemaId()).orElse(null);
             // field_validation was previously client-side-only metadata, rendered by the
@@ -350,23 +376,6 @@ public class NotificationService {
                 return new NotifyResult(existing.get(), List.of());
             }
         }
-
-        List<String> rawCc = request.recipients() != null && request.recipients().cc() != null
-                ? request.recipients().cc() : List.of();
-        List<String> rawBcc = request.recipients() != null && request.recipients().bcc() != null
-                ? request.recipients().bcc() : List.of();
-
-        List<String> to = resolveRecipientTokens(tenant, effectiveTo);
-        if (to.isEmpty()) {
-            throw new IllegalArgumentException("recipients.to (or payload.to_address) is required for action " + action.getCode());
-        }
-        List<String> cc = resolveRecipientTokens(tenant, rawCc);
-        List<String> bcc = resolveRecipientTokens(tenant, rawBcc);
-
-        // Audit-trail only — never gates the send, see RecipientClassifier.
-        to.forEach(email -> recipientClassifier.classifyAndLog(tenant, action.getCode(), "TO", email));
-        cc.forEach(email -> recipientClassifier.classifyAndLog(tenant, action.getCode(), "CC", email));
-        bcc.forEach(email -> recipientClassifier.classifyAndLog(tenant, action.getCode(), "BCC", email));
 
         Map<String, Object> effectiveContext = new HashMap<>(payload);
         NotifyRequest.AttachmentOptions opts = request.attachmentOptions();
