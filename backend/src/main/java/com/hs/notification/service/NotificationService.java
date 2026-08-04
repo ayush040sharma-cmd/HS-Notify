@@ -14,6 +14,7 @@ import com.hs.notification.repository.NotificationActionRepository;
 import com.hs.notification.repository.NotificationJobRepository;
 import com.hs.notification.repository.NotificationRuleRepository;
 import com.hs.notification.repository.NotificationTemplateRepository;
+import com.hs.notification.repository.RecipientGroupRepository;
 import com.hs.notification.service.attachment.AttachmentOrchestrationService;
 import com.hs.notification.service.attachment.AttachmentStorageWriter;
 import com.hs.notification.service.directory.UserDirectoryResolver;
@@ -47,6 +48,7 @@ public class NotificationService {
     private final FormFieldValidationService formFieldValidationService;
     private final AppUserRepository appUserRepository;
     private final UserDirectoryResolver userDirectoryResolver;
+    private final RecipientGroupRepository recipientGroupRepository;
     private final TemplateRenderingService templateRenderingService;
     private final AttachmentService attachmentService;
     private final PrRecordsExportService prRecordsExportService;
@@ -68,6 +70,7 @@ public class NotificationService {
                                FormFieldValidationService formFieldValidationService,
                                AppUserRepository appUserRepository,
                                UserDirectoryResolver userDirectoryResolver,
+                               RecipientGroupRepository recipientGroupRepository,
                                TemplateRenderingService templateRenderingService,
                                AttachmentService attachmentService,
                                PrRecordsExportService prRecordsExportService,
@@ -88,6 +91,7 @@ public class NotificationService {
         this.formFieldValidationService = formFieldValidationService;
         this.appUserRepository = appUserRepository;
         this.userDirectoryResolver = userDirectoryResolver;
+        this.recipientGroupRepository = recipientGroupRepository;
         this.templateRenderingService = templateRenderingService;
         this.attachmentService = attachmentService;
         this.prRecordsExportService = prRecordsExportService;
@@ -343,14 +347,17 @@ public class NotificationService {
             }
         }
 
-        List<String> to = effectiveTo;
+        List<String> rawCc = request.recipients() != null && request.recipients().cc() != null
+                ? request.recipients().cc() : List.of();
+        List<String> rawBcc = request.recipients() != null && request.recipients().bcc() != null
+                ? request.recipients().bcc() : List.of();
+
+        List<String> to = resolveRecipientTokens(tenant, effectiveTo);
         if (to.isEmpty()) {
             throw new IllegalArgumentException("recipients.to (or payload.to_address) is required for action " + action.getCode());
         }
-        List<String> cc = request.recipients() != null && request.recipients().cc() != null
-                ? request.recipients().cc() : List.of();
-        List<String> bcc = request.recipients() != null && request.recipients().bcc() != null
-                ? request.recipients().bcc() : List.of();
+        List<String> cc = resolveRecipientTokens(tenant, rawCc);
+        List<String> bcc = resolveRecipientTokens(tenant, rawBcc);
 
         Map<String, Object> effectiveContext = new HashMap<>(payload);
         NotifyRequest.AttachmentOptions opts = request.attachmentOptions();
@@ -571,6 +578,60 @@ public class NotificationService {
     }
 
     public record CustomSendResult(NotificationJob job, List<String> notices) {}
+
+    private static final String RECIPIENT_GROUP_PREFIX = "group:";
+
+    /**
+     * Ad-hoc /api/v1/notify recipient resolution, additive to the literal-email
+     * behavior every existing caller already relies on: each entry in
+     * to/cc/bcc is either a "group:CODE" reference (expands to every active
+     * member of that tenant's recipient_group, regardless of the member's own
+     * recipient_type — the caller already decided this token belongs in
+     * to/cc/bcc, so that placement wins), a literal email (contains "@",
+     * unchanged from today), or a bare username resolved via
+     * UserDirectoryResolver (the same directory CURRENT_USER rules already
+     * use). Any token that can't be resolved fails the whole send rather than
+     * silently sending to fewer recipients than the caller asked for.
+     */
+    private List<String> resolveRecipientTokens(Tenant tenant, List<String> tokens) {
+        List<String> resolved = new ArrayList<>();
+        for (String token : tokens) {
+            resolved.addAll(resolveRecipientToken(tenant, token));
+        }
+        return resolved;
+    }
+
+    private List<String> resolveRecipientToken(Tenant tenant, String token) {
+        if (token == null || token.isBlank()) {
+            return List.of();
+        }
+        if (token.startsWith(RECIPIENT_GROUP_PREFIX)) {
+            String groupCode = token.substring(RECIPIENT_GROUP_PREFIX.length());
+            RecipientGroup group = recipientGroupRepository
+                    .findByTenant_TenantIdAndGroupCode(tenant.getTenantId(), groupCode)
+                    .orElseThrow(() -> new IllegalArgumentException("Unknown recipient group: " + groupCode));
+            List<String> emails = allActiveMemberEmails(group);
+            if (emails.isEmpty()) {
+                throw new IllegalArgumentException("Recipient group " + groupCode + " has no active members with an email address");
+            }
+            return emails;
+        }
+        if (token.contains("@")) {
+            return List.of(token);
+        }
+        return userDirectoryResolver.resolveEmail(token)
+                .map(List::of)
+                .orElseThrow(() -> new IllegalArgumentException("Could not resolve recipient username: " + token));
+    }
+
+    private List<String> allActiveMemberEmails(RecipientGroup group) {
+        if (group.getMembers() == null) return List.of();
+        return group.getMembers().stream()
+                .filter(RecipientGroupMember::isActive)
+                .map(RecipientGroupMember::getEmailAddress)
+                .filter(addr -> addr != null && !addr.isBlank())
+                .toList();
+    }
 
     private List<String> resolveRecipients(RecipientGroup group, String type) {
         if (group == null || group.getMembers() == null) return List.of();

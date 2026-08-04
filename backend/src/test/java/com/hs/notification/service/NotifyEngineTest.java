@@ -180,6 +180,73 @@ class NotifyEngineTest {
         assertThat(notices).anyMatch(n -> n.contains("EXCEL_EXPORT"));
     }
 
+    // --- Recipient resolution: group refs + bare usernames (additive to literal emails) ---
+
+    @Test
+    void notifyWithGroupReferenceExpandsToAllActiveMembersRegardlessOfStoredType() {
+        // FRAUD_OPS_TEAM (V2 seed data, now under tenant SUBEX post-V11 rename) has
+        // one TO member and one CC member. Placed in recipients.to, both must come
+        // back — the caller's placement (to) wins over each member's own stored
+        // recipient_type.
+        Map<String, Object> body = Map.of(
+                "action", "CASE_SUMMARY",
+                "recipients", Map.of("to", List.of("group:FRAUD_OPS_TEAM")),
+                "subject", "group recipient test"
+        );
+        ResponseEntity<Map> response = restTemplate.exchange(
+                "/api/v1/notify", HttpMethod.POST, new HttpEntity<>(body, apiKeyHeaders()), Map.class);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+        Map<String, Object> job = (Map<String, Object>) response.getBody().get("job");
+        assertThat((List<String>) job.get("toAddresses"))
+                .containsExactlyInAnyOrder("fraud-ops@zain.example.com", "fraud-ops-lead@zain.example.com");
+    }
+
+    @Test
+    void notifyWithMixedLiteralAndGroupRecipientsResolvesBoth() {
+        Map<String, Object> body = Map.of(
+                "action", "CASE_SUMMARY",
+                "recipients", Map.of("to", List.of("literal@example.com", "group:FRAUD_OPS_TEAM")),
+                "subject", "mixed recipient test"
+        );
+        ResponseEntity<Map> response = restTemplate.exchange(
+                "/api/v1/notify", HttpMethod.POST, new HttpEntity<>(body, apiKeyHeaders()), Map.class);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+        Map<String, Object> job = (Map<String, Object>) response.getBody().get("job");
+        assertThat((List<String>) job.get("toAddresses")).containsExactlyInAnyOrder(
+                "literal@example.com", "fraud-ops@zain.example.com", "fraud-ops-lead@zain.example.com");
+    }
+
+    @Test
+    void notifyWithUnknownGroupReferenceFailsHardInsteadOfSendingPartial() {
+        Map<String, Object> body = Map.of(
+                "action", "CASE_SUMMARY",
+                "recipients", Map.of("to", List.of("group:NOT_A_REAL_GROUP")),
+                "subject", "unknown group test"
+        );
+        ResponseEntity<Map> response = restTemplate.exchange(
+                "/api/v1/notify", HttpMethod.POST, new HttpEntity<>(body, apiKeyHeaders()), Map.class);
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+    }
+
+    @Test
+    void notifyWithUnresolvableBareUsernameFailsHardInsteadOfSendingPartial() {
+        // No "@" and no "group:" prefix -> treated as a bare username and resolved
+        // via UserDirectoryResolver. That directory datasource isn't configured in
+        // this test environment, so resolution always misses here — proving the
+        // attempt happens and fails hard rather than silently emailing the literal
+        // string "not.a.real.user" as if it were an address.
+        Map<String, Object> body = Map.of(
+                "action", "CASE_SUMMARY",
+                "recipients", Map.of("to", List.of("not.a.real.user")),
+                "subject", "unresolvable username test"
+        );
+        ResponseEntity<Map> response = restTemplate.exchange(
+                "/api/v1/notify", HttpMethod.POST, new HttpEntity<>(body, apiKeyHeaders()), Map.class);
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+    }
+
     // --- backward compatibility: legacy endpoints keep their existing contracts ---
 
     @Test
