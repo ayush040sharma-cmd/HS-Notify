@@ -93,4 +93,23 @@ public class AppMonitoringUserDirectoryResolver implements UserDirectoryResolver
         }
         return Optional.empty();
     }
+
+    @Override
+    public boolean existsByEmail(String email) {
+        if (dataSource == null || email == null || email.isBlank()) {
+            return false;
+        }
+
+        String sql = "SELECT 1 FROM users WHERE email_id = ? AND status = 'active'";
+        try (Connection connection = dataSource.getConnection();
+             PreparedStatement ps = connection.prepareStatement(sql)) {
+            ps.setString(1, email);
+            try (ResultSet rs = ps.executeQuery()) {
+                return rs.next();
+            }
+        } catch (Exception e) {
+            log.warn("user-directory reverse lookup failed for email={}: {}", email, e.getMessage());
+            return false;
+        }
+    }
 }

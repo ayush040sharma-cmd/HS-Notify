@@ -17,6 +17,7 @@ import com.hs.notification.repository.NotificationTemplateRepository;
 import com.hs.notification.repository.RecipientGroupRepository;
 import com.hs.notification.service.attachment.AttachmentOrchestrationService;
 import com.hs.notification.service.attachment.AttachmentStorageWriter;
+import com.hs.notification.service.directory.RecipientClassifier;
 import com.hs.notification.service.directory.UserDirectoryResolver;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -49,6 +50,7 @@ public class NotificationService {
     private final AppUserRepository appUserRepository;
     private final UserDirectoryResolver userDirectoryResolver;
     private final RecipientGroupRepository recipientGroupRepository;
+    private final RecipientClassifier recipientClassifier;
     private final TemplateRenderingService templateRenderingService;
     private final AttachmentService attachmentService;
     private final PrRecordsExportService prRecordsExportService;
@@ -71,6 +73,7 @@ public class NotificationService {
                                AppUserRepository appUserRepository,
                                UserDirectoryResolver userDirectoryResolver,
                                RecipientGroupRepository recipientGroupRepository,
+                               RecipientClassifier recipientClassifier,
                                TemplateRenderingService templateRenderingService,
                                AttachmentService attachmentService,
                                PrRecordsExportService prRecordsExportService,
@@ -92,6 +95,7 @@ public class NotificationService {
         this.appUserRepository = appUserRepository;
         this.userDirectoryResolver = userDirectoryResolver;
         this.recipientGroupRepository = recipientGroupRepository;
+        this.recipientClassifier = recipientClassifier;
         this.templateRenderingService = templateRenderingService;
         this.attachmentService = attachmentService;
         this.prRecordsExportService = prRecordsExportService;
@@ -358,6 +362,11 @@ public class NotificationService {
         }
         List<String> cc = resolveRecipientTokens(tenant, rawCc);
         List<String> bcc = resolveRecipientTokens(tenant, rawBcc);
+
+        // Audit-trail only — never gates the send, see RecipientClassifier.
+        to.forEach(email -> recipientClassifier.classifyAndLog(tenant, action.getCode(), "TO", email));
+        cc.forEach(email -> recipientClassifier.classifyAndLog(tenant, action.getCode(), "CC", email));
+        bcc.forEach(email -> recipientClassifier.classifyAndLog(tenant, action.getCode(), "BCC", email));
 
         Map<String, Object> effectiveContext = new HashMap<>(payload);
         NotifyRequest.AttachmentOptions opts = request.attachmentOptions();

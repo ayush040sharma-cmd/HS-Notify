@@ -170,6 +170,10 @@ hs-notification:
     password: ${USER_DIRECTORY_DB_PASSWORD:}
     connect-timeout-ms: 5000
     socket-timeout-seconds: 20
+  recipient-classification:
+    # Domains treated as "internal" by RecipientClassifier. Audit-trail/logging
+    # only today — never gates send behavior. Comma-separated.
+    internal-domains: ${INTERNAL_EMAIL_DOMAINS:subex.com}
   watchdog:
     enabled: true
     self-check-url: http://localhost:${server.port}/actuator/health

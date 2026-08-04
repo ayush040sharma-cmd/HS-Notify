@@ -19,4 +19,11 @@ public interface UserDirectoryResolver {
      * tier (e.g. domain-guess synthesis).
      */
     Optional<String> resolveEmail(String username);
+
+    /**
+     * Reverse lookup: does an active user with this email exist in the
+     * directory? Same never-throws, false-when-unconfigured contract as
+     * {@link #resolveEmail(String)} — a miss is routine, not exceptional.
+     */
+    boolean existsByEmail(String email);
 }
